@@ -2,6 +2,11 @@
 
 unsigned long long int X = 0;
 
+int factorial(unsigned int n)
+{
+    return n < 2 ? 1 : n*factorial(n-1);
+}
+
 /* formula - any formula that includes the formula end operator
  * return - the literal number of symbols describing formula, up to but not
  *          including the formula end operator
@@ -33,6 +38,16 @@ int length_l(void **list)
 // struct range_t a,b;
 // struct range_t *x[3] = {&a,&b,NULL};
 // length_l(x, sizeof(struct range_t *)) == 2
+
+void free_l(void **list)
+{
+    /* this would happen anyway, but this makes it clear */
+    if(list == NULL) return;
+
+    int i, n = length_l(list);
+    for(i = 0; i < n; i++) free(list[i]);
+    free(list);
+}
 
 /* formula - any formula, valid within the scope of the operator s refers to
  * s - index within formula pointing to an atom or operator
@@ -179,6 +194,77 @@ struct range_t **arguments_ex(int *formula, struct range_t *t,
     ret = realloc(ret, j*sizeof(struct range_t *));
 
     return ret;
+}
+
+/*
+ *     def heap_aux(a, n, the_list):  
+        if n == 1:  
+            the_list.append(copy(a))  
+        else:  
+            for i in range(n):  
+                heap_aux(a, n-1, the_list);  
+      
+                if n % 2 == 1:  
+                    a[0], a[n-1] = a[n-1], a[0]  
+                else:  
+                    a[i], a[n-1] = a[n-1], a[i]  
+      
+      
+    def heap(a):  
+        the_list = []  
+        heap_aux(a, len(a), the_list)  
+        return the_list  */
+
+/* this function is horrible to use, although the algorithm itself is good */
+void permute(int n, int m, int ***perms_p, int **a_p)
+{
+    int i;
+    int **perms = *perms_p;
+    int *a = *a_p;
+
+    if(perms == NULL) {
+        /* number of permutations will always be n! */
+        perms = malloc((factorial((unsigned int)n)+1)*sizeof(int *));
+        *perms_p = perms;
+        perms[0] = NULL;
+
+        a = malloc(n*sizeof(int));
+        for(i = 0; i < n; i++) a[i] = i;
+        *a_p = a;
+
+        m = n;
+    }
+
+    if(n == 1) {
+        /* this is safe assuming that no other function fucks with permute()'s
+         * variables */
+        for(i = 0; ; i++) {
+            if(perms[i] == NULL) {
+                perms[i+1] = NULL;
+                perms[i] = malloc(m*sizeof(int));
+                memcpy(perms[i], a, m*sizeof(int));
+
+                break;
+            }
+        }
+    }
+    else {
+        for(i = 0; i < n; i++) {
+            permute(n-1, m, &perms, &a);
+
+            int swap;
+            if(n%2 == 1) {
+                swap = a[0];
+                a[0] = a[n-1];
+                a[n-1] = swap;
+            }
+            else {
+                swap = a[i];
+                a[i] = a[n-1];
+                a[n-1] = swap;
+            }
+        }
+    }
 }
 
 /* n - number of objects to find all pairs of
@@ -430,11 +516,21 @@ int *shove(int *formula, struct range_t *t, int *toadd)
 {
     int n = length(formula);
     int n_toadd = length(toadd);
+
+    int todec_toadd = 0;
+    if(formula[t->top] < ATOMLIM && formula[t->top] == toadd[0]) {
+        toadd++;
+        n_toadd -= 2; /* no more OP or ) */
+        todec_toadd = 1; /* but before we free it, gotta -- */
+    }
+
     int n_new = n+n_toadd;
     int *ret = malloc((n_new+1)*sizeof(int));
     memcpy(ret, formula, (t->top+1)*sizeof(int));
     memcpy(ret+t->top+1, toadd, (n_toadd)*sizeof(int));
     memcpy(ret+t->top+1+n_toadd, formula+t->top+1, (n-t->top)*sizeof(int));
+
+    if(todec_toadd) toadd--;
     free(toadd);
     free(formula);
     return ret;
@@ -878,21 +974,393 @@ void printformula(int *formula)
     printf("\n");
 }
 
-void exhaust(int *formula)
+/* generate ALL balanced formulae of n variables */
+int **genbf(int n)
 {
-    if(formula == NULL)
-        return;
-    //printformula(formula);
-    X++;
-    int **stuff = r_mix(formula);
-    int n = length_l((void **) stuff);
-    //if(n == 0) printf("FINISHED!!\n");
-    int i;
-    for(i = 0; i < n; i++) {
-        exhaust(stuff[i]);
-        free(stuff[i]);
+    int s[n], m[n]; s[0] = -1;
+    int i, j, k, l; /* we do a lot of counting... */
+    int **ret = NULL;
+    int n_ret = 0;
+    int partsize;
+    int part[2*n], delim[2*n];
+
+    while((partsize = partition(n, s, m))) {
+        /* part = A1,.,A2,.,A3,.,A4,.,...,Apartsize,.
+         * Ak = atoms in subset k */
+        memset(delim, 0, 2*n*sizeof(int));
+
+        for(i = 0, k = 0; i < partsize; i++) {
+            for(j = 0; j < n; j++) {
+                if(s[j] == i+1) {
+                    part[k++] = j; /* important here: this means we generally
+                                        don't use 0 as a variable, even though
+                                        it is a valid one */
+                }
+            }
+            part[k++] = OP_FIN;
+            delim[i+1] = k;
+        }
+
+        /* for every partition, add an AND/OR and a ), plus the n variables,
+         * and then the final . */
+        int n_formula = partsize*2+n+1;
+
+        /* now we collect all permutations of (1,...,partsize) */
+        int **perm = NULL;
+        int *pv = NULL;
+        permute(partsize, 0, &perm, &pv);
+        free(pv); /* TODO: THIS PERMUTATION FUNCTION SUCKS, I HATE IT */
+
+        int n_perms = length_l((void **)perm); /* this will be n! */
+        for(i = 0; i < n_perms; i++) {
+            /* since we end up with ...,ANDOR(A1),... where A1 is the
+             * perm[i][0]th partition, if said partition contains only one atom
+             * then we discount it because it is a redundant form of another
+             * formula generated by a different partition earlier or later on
+             */
+            if(length(part+delim[perm[i][0]]) < 2) continue;
+
+            enum OPERATOR op = OP_OR;
+
+            /* make the OR,AND,OR,... */
+            int *formula1 = malloc(n_formula*sizeof(int));
+            int *formula2 = malloc(n_formula*sizeof(int));
+
+            for(l = 0; l < partsize; l++) {
+                formula1[l] = op;
+                op = (op == OP_AND) ? OP_OR : OP_AND; /* alternate! */
+                formula2[l] = op;
+            }
+
+            for(j = 0; j < partsize; j++) {
+                /* push part[delim[perm[i][j]]+k] up to OP_FIN */
+                for(k = 0; part[delim[perm[i][j]]+k] != OP_FIN; k++, l++)
+                    formula1[l] = formula2[l] = part[delim[perm[i][j]]+k];
+                /* push ) */
+                formula1[l] = formula2[l] = OP_CLOSE;
+                l++;
+            }
+
+            formula1[l] = formula2[l] = OP_FIN; /* push . */
+
+            n_ret += 2;
+            ret = realloc(ret, (n_ret+1)*sizeof(int *));
+            ret[n_ret-2] = formula1;
+            ret[n_ret-1] = formula2;
+            ret[n_ret] = NULL;
+        }
+
+        free_l((void **)perm);
     }
-    free(stuff);
+
+    return ret;
+}
+
+/*int cmpatomp(const void *a, const void *b)
+{
+    const int *da = (const int *)a;
+    const int *db = (const int *)b;
+
+    return (*da > *db) - (*da < *db);
+}
+
+void sortatoms(int *formula)
+{
+    int i;
+    int n = length(formula);
+    struct range_t range = {0,0};
+
+    for(i = 0; i < n; i++) {
+        if(formula[i] >= ATOMLIM && !tracking) {
+            if(tracking) continue;
+            else {
+                tracking = 1;
+                range.top = i;
+            }
+        }
+        else if(tracking) {
+            tracking = 0;
+            range.bot = i;
+
+            qsort(formula+range.top, range.bot-range.top, sizeof(int),
+                    cmpatomp);
+        }
+    }
+}
+
+void cmpargp(const void *x, const void *y, void *fp)
+{
+    struct range_t *a = (struct range_t *)x;
+    struct range_t *b = (struct range_t *)y;
+    int *formula = (int *)fp;
+
+}
+
+void sortarguments(int *formula)
+{
+    struct range_t *r = range(formula, 0);
+    struct range_t **args = arguments(formula, &range);
+    qsort_r(args, length_l(args), sizeof(struct range_t *), compargp,
+            (void *)formula);
+    reconstruct(formula, args);
+    free(r);
+}
+
+int equiv(int *a, struct range_t *ar, int *b, struct range_t *br)
+{
+    sortatoms(formula);
+    sortarguments(formula);
+    return 0;
+}*/
+
+/* are the formulae a, b the same? */
+int equiv(int *f1, struct range_t *t1, int *f2, struct range_t *t2)
+{
+    int tofree_t1 = 0;
+    int tofree_t2 = 0;
+    if(t1 == NULL) { t1 = range(f1, 0); tofree_t1 = 1; }
+    if(t2 == NULL) { t2 = range(f2, 0); tofree_t2 = 1; }
+
+    if(f1[t1->top] != f2[t2->top]) return 0;
+
+    struct range_t **args1 = arguments(f1, t1);
+    struct range_t **args2 = arguments(f2, t2);
+    int i, j;
+    int n_args = length_l((void **)args1);
+    int n_args2 = length_l((void **)args2);
+
+    if(n_args != n_args2) {
+        free_l((void **)args1);
+        free_l((void **)args2);
+        if(tofree_t1) free(t1);
+        if(tofree_t2) free(t2);
+        return 0;
+    }
+
+    /* WARNING: no atoms should be > 15 */
+    uint16_t c1, c2; c1 = c2 = 0;
+    int ac1, ac2, oc1, oc2; ac1 = ac2 = oc1 = oc2 = 0;
+
+    for(i = 0; i < n_args; i++) {
+        if(f1[args1[i]->top] >= ATOMLIM) /* it's an atom */
+            c1 |= 0x1<<f1[args1[i]->top];
+        else if(f1[args1[i]->top] == OP_AND) ac1++;
+        else if(f1[args1[i]->top] == OP_OR) oc1++;
+    }
+
+    for(i = 0; i < n_args; i++) {
+        if(f2[args2[i]->top] >= ATOMLIM) /* it's an atom */
+            c2 |= 0x1<<f2[args2[i]->top];
+        else if(f2[args2[i]->top] == OP_AND) ac2++;
+        else if(f2[args2[i]->top] == OP_OR) oc2++;
+    }
+
+    /* TODO: this should eventually be extended more generally to all types of
+     * operator I think, although it might be hard */
+    if(c1 != c2 /* are the toplevel atoms the same? */
+            || oc1 != oc2 /* are the number of toplevel ORs the same? */
+            || ac1 != ac2) { /* or ANDs? */
+        /* if any of these three things aren't true, the formulae are not
+         * equivalent */
+        free_l((void **)args1);
+        free_l((void **)args2);
+        if(tofree_t1) free(t1);
+        if(tofree_t2) free(t2);
+        return 0;
+    }
+
+    int checked[n_args]; memset(checked, 0, n_args*sizeof(int));
+    /* for each ANDOR argument in A, is there an equivalent one in B? if this
+     * is the case, since we are dealing with balanced formulae only, we can
+     * conclude (along with the above checks) that A and B are equivalent */
+    for(i = 0; i < n_args; i++) {
+        if(f1[args1[i]->top] >= ATOMLIM) {
+            checked[i] = 1;
+            continue;
+        }
+
+        for(j = 0; j < n_args; j++) {
+            if(f2[args2[j]->top] >= ATOMLIM) continue;
+            if(equiv(f1, args1[i], f2, args2[j])) {
+                checked[i] = 1;
+                break;
+            }
+        }
+    }
+
+    for(i = 0; i < n_args; i++) if(!checked[i]) break;
+
+    free_l((void **)args1);
+    free_l((void **)args2);
+    if(tofree_t1) free(t1);
+    if(tofree_t2) free(t2);
+
+    return (i == n_args) ? 1 : 0;
+}
+
+/* here we are clever and represent up to 16 inputs by a single int */
+int eval(int *formula, struct range_t *t, uint16_t input)
+{
+    int tofree_t = 0;
+    if(t == NULL) { t = range(formula, 0); tofree_t = 1; }
+
+    /* top>=ATOMLIM is equivalent to top==bot (under sane conditions) */
+    else if(formula[t->top] >= ATOMLIM)
+        return (input>>formula[t->top])&0x1;
+
+    struct range_t **args = arguments(formula, t);
+    int n_args = length_l((void **)args);
+    int i;
+
+    int acc = 0; /* accumulator */
+    if(formula[t->top] == OP_AND) {
+        acc = 1;
+        for(i = 0; i < n_args; i++)
+            acc &= eval(formula, args[i], input);
+    }
+    else if(formula[t->top] == OP_OR) {
+        for(i = 0; i < n_args; i++)
+            acc |= eval(formula, args[i], input);
+    }
+
+    if(tofree_t) free(t);
+    free_l((void **)args);
+
+    return acc;
+}
+
+/* does f1 => f2? */
+int implies(int *f1, int *f2)
+{
+    struct range_t *t1 = range(f1, 0);
+    struct range_t *t2 = range(f2, 0);
+
+    int varmax = 0;
+    int i;
+
+    for(i = 0; i < t1->bot+1; i++)
+        if(varmax < f1[i]) varmax = f1[i];
+    for(i = 0; i < t2->bot+1; i++)
+        if(varmax < f2[i]) varmax = f2[i];
+
+    /* this is annoying but not really an issue at this stage */
+    if(varmax > 15) {
+        fprintf(stderr,
+                "ERROR: currently switch can only handle up to 15 "
+                "residual arguments; exiting.\n");
+        exit(1);
+    }
+
+    uint16_t input = 0x1<<varmax;
+    
+    while(input && (eval(f1, t1, input) <= eval(f2, t2, input))) input--;
+
+    free(t1);
+    free(t2);
+
+    return input ? 0 : 1;
+}
+
+int find(int **formulae, int n_formulae, int *formula)
+{
+    if(n_formulae <= 0) n_formulae = length_l((void **)formulae);
+    struct range_t *t = range(formula, 0);
+
+    int i;
+    for(i = 0; i < n_formulae; i++) {
+        if(equiv(formulae[i], NULL, formula, t)) {
+            free(t);
+            return i;
+        }
+    }
+
+    free(t);
+
+    return -1;
+}
+
+/* can we prove f1 => f2 by our r_ toolbox? */
+int prove(int *f1, int *f2)
+{
+    /* nonsense */
+    if(f1 == NULL || f2 == NULL)
+        return 0;
+
+    if(equiv(f1, NULL, f2, NULL)) return 1;
+
+    printformula(f1);
+
+    /* can we prove it with one step of mix, switch or medial? */
+    int **next_mix = r_mix(f1);
+    int n_next_mix = length_l((void **)next_mix);
+    if(find(next_mix, n_next_mix, f2) >= 0) {
+        free_l((void **)next_mix);
+        return 1;
+    }
+
+    int **next_switch = r_switch(f1);
+    int n_next_switch = length_l((void **)next_switch);
+    if(find(next_switch, n_next_switch, f2) >= 0) {
+        free_l((void **)next_mix);
+        free_l((void **)next_switch);
+        return 1;
+    }
+
+    int **next_medial = r_medial(f1);
+    int n_next_medial = length_l((void **)next_medial);
+    if(find(next_medial, n_next_medial, f2) >= 0) {
+        free_l((void **)next_mix);
+        free_l((void **)next_switch);
+        free_l((void **)next_medial);
+        return 1;
+    }
+
+    /* if not, can we prove it from any of the results we got from mix, switch,
+     * medial with further steps? */
+    int i;
+
+    // TODO: put all 3 results from each rule into one list and just plug that
+    // into prove, rather than doing it three times
+
+    /* mix */
+    for(i = 0; i < n_next_mix; i++) {
+        printf("prove from mix\n");
+        if(prove(next_mix[i], f2)) {
+            free_l((void **)next_mix);
+            free_l((void **)next_switch);
+            free_l((void **)next_medial);
+            return 1;
+        }
+    }
+
+    /* switch */
+    for(i = 0; i < n_next_switch; i++) {
+        printf("prove from switch\n");
+        if(prove(next_switch[i], f2)) {
+            free_l((void **)next_mix);
+            free_l((void **)next_switch);
+            free_l((void **)next_medial);
+            return 1;
+        }
+    }
+
+    /* medial */
+    for(i = 0; i < n_next_medial; i++) {
+        printf("prove from medial\n");
+        if(prove(next_medial[i], f2)) {
+            free_l((void **)next_mix);
+            free_l((void **)next_switch);
+            /* ok, I think this function could do with some gotos... */
+            free_l((void **)next_medial);
+            return 1;
+        }
+    }
+
+    /* and assuming we can't do THAT, there's no way we can prove it */
+    free_l((void **)next_mix);
+    free_l((void **)next_switch);
+    free_l((void **)next_medial);
+    return 0;
 }
 
 int main(int argc, char *argv[])
@@ -952,13 +1420,97 @@ int main(int argc, char *argv[])
             OP_CLOSE,
         OP_CLOSE,
         OP_FIN};
-    int fff[] = {OP_AND, 1, 2, OP_CLOSE, OP_FIN};
-    int g[] = {OP_AND, 1, 4, OP_OR, 2, 3, 5, 6, 7, OP_CLOSE, OP_CLOSE, OP_FIN};
-    int h[] = {OP_AND, 1, 2, 3, 4, 5, 6, 7, 8, OP_CLOSE, OP_FIN};
+    //int xyz[] = {OP_AND, 0, 1, OP_CLOSE, OP_FIN};
+    int xyz[] = {OP_AND, 1, 0, 2, 3, 6, OP_CLOSE, OP_FIN};
+    int fff[] = {OP_OR, 0, 1, OP_CLOSE, OP_FIN};
+    int g[] = {OP_AND, 1, 0, OP_OR, 2, 3, 5, OP_CLOSE, OP_CLOSE, OP_FIN};
+    int h[] = {OP_AND, 1, 2, 3, 4, 5, 6, OP_CLOSE, OP_FIN};
+
+    //printf("%d\n", implies(fff, xyz));
+
+    int **bfs = genbf(4);
+    int i, j;
+    int n_bfs = length_l((void **)bfs);
+    for(i = 3; i < n_bfs; i++) {
+        for(j = 0; j < n_bfs; j++) {
+            if(implies(bfs[i], bfs[j])) {
+                printf("%d implies %d\n", i, j);
+                if(prove(bfs[i],bfs[j])) {
+                    printf("provable\n");
+                }
+                else {
+                    printf("NOT provable!\nA=");
+                    printformula(bfs[i]);
+                    printf("B=");
+                    printformula(bfs[j]);
+                    exit(0);
+                }
+                //printf("%d %s %d\n", i, prove(bfs[i],bfs[j])?"proves":"does not prove", j);
+            }
+        }
+    }
+    free_l((void **)bfs);
+
+    //printf("%d\n", implies(xyz, g));
+    //printf("%d\n", prove(xyz, g));
+
     //exhaust(f);
 
-    exhaust(h);
-    printf("%llu\n", X);
+    /*int n = 6;
+    int **list = NULL;
+    int *pv = NULL;
+    permute(n, 0, &list, &pv);
+    free(pv);
+
+    int i, j;
+    for(i = 0; i < length_l((void **)list); i++) {
+        for(j = 0; j < n; j++) printf("%d, ", list[i][j]);
+        printf("\n");
+    }
+
+    free_l((void **)list);*/
+
+    /*int n = 6;
+    int **bfs = genbf(n);
+
+    int i, j;
+    int n_bfs = length_l((void **)bfs);
+    for(i = 0; i < n_bfs; i++) {
+        for(j = 0; j < n_bfs; j++) {
+            if(i == j) continue;
+            struct range_t *a = range(bfs[i], 0);
+            struct range_t *b = range(bfs[j], 0);
+            if(equiv(bfs[i], a, bfs[j], b)) {
+                printf("equivalent: \n");
+                printformula(bfs[i]);
+                printformula(bfs[j]);
+                printf("------\n");
+            }
+
+            free(a);
+            free(b);
+        }
+        printf("%d/%d\n", i, length_l((void **)bfs));*/
+
+        /*for(j = 0; j < n; j++) printf("%d, ", bfs[i][j]);
+        printf("\n");*/
+        //printformula(bfs[i]);
+    /*}
+
+    free_l((void **)bfs);*/
+
+    /*int o[] = {OP_AND, OP_OR, 1, 2, 4, OP_CLOSE, OP_AND, 3, 5, 6, OP_CLOSE, 7, 8, 9, OP_CLOSE, OP_FIN};
+    int p[] = {OP_AND,OP_AND, 3, 6, 5, OP_CLOSE, 7, OP_OR, 4, 2, 1, OP_CLOSE,  8, 9, OP_CLOSE, OP_FIN};
+
+    struct range_t *a, *b;
+    a = range(o, 0);
+    b = range(p, 0);
+    printf("%d\n", equiv(o, a, p, b));
+
+    free(a);
+    free(b);*/
+    //exhaust(h);
+    //printf("%llu\n", X);
     //exhaust(ff);
 
 //    int **stuff;

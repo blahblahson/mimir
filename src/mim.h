@@ -1,5 +1,5 @@
-#ifndef _MAIN_H_
-#define _MAIN_H_
+#ifndef _MIM_H_
+#define _MIM_H_
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,4 +59,8 @@ int **r_medial(int *);
 int **r_switch(int *);
 int **r_mix(int *);
 
-#endif /* _MAIN_H_ */
+int equiv(int *, struct range_t *, int *, struct range_t *);
+
+int **genbf(int);
+
+#endif /* _MIM_H_ */
