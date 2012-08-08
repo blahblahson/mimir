@@ -100,6 +100,20 @@ int parent(int *formula, int s)
     return i;
 }
 
+int atomcount(int *formula, struct range_t *t)
+{
+    int tofree_t = 0;
+    if(formula == NULL) return 0;
+    if(t == NULL) { t = range(formula, 0); tofree_t = 1; }
+
+    int i, count = 0;
+    for(i = t->top; i < t->bot; i++) if(formula[i] >= ATOMLIM) count++;
+    if(tofree_t) free(t);
+
+    if(t->top == t->bot && formula[t->top] >= ATOMLIM) return 1;
+    return count;
+}
+
 struct range_t *range(int *formula, int s)
 {
     struct range_t *ret = malloc(sizeof(struct range_t));
@@ -1261,6 +1275,8 @@ int equiv(int *f1, struct range_t *t1, int *f2, struct range_t *t2)
     return (i == n_args) ? 1 : 0;
 }
 
+//int quickprove(int *f1, int 
+
 /* here we are clever and represent up to 16 inputs by a single int */
 int eval(int *formula, struct range_t *t, uint16_t input)
 {
@@ -1387,6 +1403,150 @@ int find(int **formulae, int n_formulae, int *formula)
     return -1;
 }
 
+int validinputs(int *formula, struct range_t *t)
+{
+    int tofree_t = 0;
+    if(formula == NULL) return 0;
+    if(t == NULL) { t = range(formula, 0); tofree_t = 1; }
+
+    if(formula[t->top] >= ATOMLIM) {
+        if(tofree_t) free(t);
+        return 1;
+    }
+
+    struct range_t **args = arguments(formula, t);
+    int n_args = length_l((void **)args);
+    /*if(n_args <= 0) {
+        if(tofree_t) free(t);
+        free_l((void **)args);
+        return 0;
+    }*/
+
+    if(formula[t->top] == OP_AND) {
+        int i, ret = 1;
+        for(i = 0; i < n_args; i++)
+            ret *= validinputs(formula, args[i]);
+
+        if(tofree_t) free(t);
+        free_l((void **)args);
+        return ret;
+    }
+    else if(formula[t->top] == OP_OR) {
+        if(n_args == 1) {
+            if(tofree_t) free(t);
+            int ret = validinputs(formula, args[0]);
+            free_l((void **)args);
+            return ret;
+        }
+        int ia = validinputs(formula, args[n_args-1]); /* #A */
+        int na = (int)pow(2, (double)atomcount(formula, args[n_args-1]));
+
+        struct range_t t2;
+        t2.top = t->top;
+        t2.bot = args[n_args-1]->top;
+
+        int ib = validinputs(formula, &t2); /* #B */
+        int nb = (int)pow(2, (double)atomcount(formula, &t2)); /* 2^|B| */
+
+        if(tofree_t) free(t);
+        free_l((void **)args);
+
+        /* #(A v B) = 2^|A|.#B + 2^|B|.#A - #A.#B */
+        return na*ib + nb*ia-ia*ib;
+    }
+    else {
+        if(tofree_t) free(t);
+        free_l((void **)args);
+        return 0;
+    }
+}
+
+int quickprove(int *f1, int *f2, int f2vi)
+{
+    /* nonsense */
+    if(f1 == NULL || f2 == NULL)
+        return 0;
+
+    if(equiv(f1, NULL, f2, NULL)) return 1;
+
+    if(validinputs(f1, NULL)+2 > f2vi) return 0;
+
+    //printformula(f1);
+
+    /* can we prove it with one step of mix, switch or medial? */
+    int **next_mix = r_mix(f1);
+    int n_next_mix = length_l((void **)next_mix);
+    if(find(next_mix, n_next_mix, f2) >= 0) {
+        free_l((void **)next_mix);
+        return 1;
+    }
+
+    int **next_switch = r_switch(f1);
+    int n_next_switch = length_l((void **)next_switch);
+    if(find(next_switch, n_next_switch, f2) >= 0) {
+        free_l((void **)next_mix);
+        free_l((void **)next_switch);
+        return 1;
+    }
+
+    int **next_medial = r_medial(f1);
+    int n_next_medial = length_l((void **)next_medial);
+    if(find(next_medial, n_next_medial, f2) >= 0) {
+        free_l((void **)next_mix);
+        free_l((void **)next_switch);
+        free_l((void **)next_medial);
+        return 1;
+    }
+
+    /* if not, can we prove it from any of the results we got from mix, switch,
+     * medial with further steps? */
+    int i;
+
+    // TODO: put all 3 results from each rule into one list and just plug that
+    // into prove, rather than doing it three times
+
+    /* mix */
+    for(i = 0; i < n_next_mix; i++) {
+//        printf("prove from mix\n");
+        if(quickprove(next_mix[i], f2, f2vi)) {
+            free_l((void **)next_mix);
+            free_l((void **)next_switch);
+            free_l((void **)next_medial);
+            return 1;
+        }
+    }
+
+    /* switch */
+    for(i = 0; i < n_next_switch; i++) {
+//        printf("prove from switch\n");
+//        printformula(next_switch[i]);
+        if(quickprove(next_switch[i], f2, f2vi)) {
+            free_l((void **)next_mix);
+            free_l((void **)next_switch);
+            free_l((void **)next_medial);
+            return 1;
+        }
+    }
+
+    /* medial */
+    for(i = 0; i < n_next_medial; i++) {
+//        printf("prove from medial\n");
+        if(quickprove(next_medial[i], f2, f2vi)) {
+            free_l((void **)next_mix);
+            free_l((void **)next_switch);
+            /* ok, I think this function could do with some gotos... */
+            free_l((void **)next_medial);
+            return 1;
+        }
+    }
+
+    /* and assuming we can't do THAT, there's no way we can prove it */
+    free_l((void **)next_mix);
+    free_l((void **)next_switch);
+    free_l((void **)next_medial);
+    return 0;
+}
+
 /* can we prove f1 => f2 by our r_ toolbox? */
 int prove(int *f1, int *f2)
 {
@@ -1396,7 +1556,7 @@ int prove(int *f1, int *f2)
 
     if(equiv(f1, NULL, f2, NULL)) return 1;
 
-//    printformula(f1);
+    //printformula(f1);
 
     /* can we prove it with one step of mix, switch or medial? */
     int **next_mix = r_mix(f1);
@@ -1540,10 +1700,11 @@ int main(int argc, char *argv[])
     int **bfs = genbf(6);
     int i, j;
     int n_bfs = length_l((void **)bfs);
-    for(i = 3; i < n_bfs; i++) {
+    for(i = n_bfs-1; i > 0; i--) {
         for(j = 0; j < n_bfs; j++) {
             if(implies(bfs[i], bfs[j])) {
-                if(prove(bfs[i],bfs[j])) {
+                int f2vi = validinputs(bfs[j], NULL);
+                if(quickprove(bfs[i],bfs[j],f2vi)) {
                     printf("[PASS](%d) %d -> %d\n", n_bfs, i+1, j+1);
                 }
                 else {
@@ -1566,6 +1727,17 @@ int main(int argc, char *argv[])
     printf("all inferences have proofs under {mix,switch,medial} and triviality\n");
     //printf("for the record: we had %d bfs\n", n_bfs);
     free_l((void **)bfs);
+
+    //int help[] = {-3, -4, -3, 2, 3, 4, 5, -2, 1, -2, 0, -2, -1};
+    //int help2[] = {-4, -3, 1, 2, 3, 4, 5, -2, 0, -2, -1};
+    /*int help[] = {-3, -4, -3, 2, 3, 4, 5, -2, 1, -2, 0, -2, -1};
+    int help2[] = {-4, -3, 1, 2, 3, 4, 5, -2, 0, -2, -1};
+    int asdf[] = {OP_OR, OP_AND, 0, 1, 3, OP_CLOSE, 2, OP_CLOSE, OP_FIN};
+    struct range_t a; a.top = 0; a.bot=4;
+    printf("%d\n", atomcount(asdf, &a));
+    printf("%d\n", validinputs(asdf, NULL));
+    printf("%d, %d\n", validinputs(help, NULL), validinputs(help2, NULL));*/
+    //prove(help, help2);
 
     /*int abc[] = {OP_AND, OP_OR, OP_AND, 1, 3, OP_CLOSE, 0, OP_CLOSE, 2, OP_CLOSE, OP_FIN};
     int def[] = {OP_OR, OP_AND, OP_OR, 2, 3, OP_CLOSE, 0, OP_CLOSE, 1, OP_CLOSE, OP_FIN};
