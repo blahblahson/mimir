@@ -88,6 +88,18 @@ int scope(int *formula, int s)
 // scope(f,5) == 5
 // scope(f,7) == 14
 
+/* returns the parent operator of any atom, or if s refers to an operator,
+ * returns s */
+int parent(int *formula, int s)
+{
+    if(formula[s] < ATOMLIM) return s;
+
+    int i;
+    for(i = s; i > 0; --i)
+        if(formula[i] < ATOMLIM) break;
+    return i;
+}
+
 struct range_t *range(int *formula, int s)
 {
     struct range_t *ret = malloc(sizeof(struct range_t));
@@ -396,6 +408,7 @@ int *splice(enum OPERATOR op, int n, ...)
     ret[j++] = op;
     va_start(ap, n);
     volatile int n_f;
+    int spliced = 0;
 
     for(i = 0; i < n; i++) {
         f = va_arg(ap, int *);
@@ -417,12 +430,24 @@ int *splice(enum OPERATOR op, int n, ...)
             j += n_f;
         }
 
+        spliced++;
         free(f);
     }
 
     va_end(ap);
 
-    ret[j++] = OP_CLOSE;
+    if(spliced == 0) {
+        free(ret);
+        return NULL;
+    }
+    else if(spliced == 1) {
+        memmove(ret, ret+1, (j-1)*sizeof(int));
+        ret = realloc(ret, j*sizeof(int));
+        j--;
+    }
+    else
+        ret[j++] = OP_CLOSE;
+
     ret[j] = OP_FIN;
     //printf("split: ");
     //printformula(ret);
@@ -518,7 +543,12 @@ int *shove(int *formula, struct range_t *t, int *toadd)
     int n_toadd = length(toadd);
 
     int todec_toadd = 0;
-    if(formula[t->top] < ATOMLIM && formula[t->top] == toadd[0]) {
+//    int start = parent(formula, t->top);
+    // TODO: we get A LOT of valgrind access errors here, to do with t->top
+    // sometimes being -1 when shove is called by r_switch... it's 3am and I
+    // can't figure out exactly what's going on so for now this will have to
+    // do... functionality seems to be fine otherwise
+    if(toadd[0] < ATOMLIM && formula[parent(formula, t->top)] == toadd[0]) {
         toadd++;
         n_toadd -= 2; /* no more OP or ) */
         todec_toadd = 1; /* but before we free it, gotta -- */
@@ -740,6 +770,7 @@ int **r_switch(int *formula)
             for(counter = 1; counter < 0x1<<n_args_and_rest; counter++) {
                 for(k = 0, n_args_and1 = n_args_and2 = 0;
                         k < n_args_and_rest; k++) {
+                    /* this is a very inspired way of dealing with this... */
                     if((counter>>k)&0x1)
                         args_and1[n_args_and1++] = args_and_rest[k];
                     else
@@ -749,7 +780,7 @@ int **r_switch(int *formula)
                 args_and1[n_args_and1] = NULL;
                 args_and2[n_args_and2] = NULL;
 
-                // make an args_and2 which is the ones we don't use, then reconstruct the whoele thing-- thisll be easier!
+                // make an args_and2 which is the ones we don't use, then reconstruct the whole thing-- thisll be easier!
 
                 struct range_t **args_and_or = arguments(formula, and_or);
                 if(args_and_or == NULL) continue;
@@ -768,23 +799,25 @@ int **r_switch(int *formula)
                     /* B */
                     for(k = 0, l = 0; k < n_args_and_or; k++)
                         if(s[k] == 1) arglist[l++] = args_and_or[k];
-                    arglist[l++] = NULL; delim[1] = k;
+                    arglist[l++] = NULL; delim[1] = l;
 
                     /* C */
                     for(k = 0; k < n_args_and_or; k++)
                         if(s[k] == 2) arglist[l++] = args_and_or[k];
                     arglist[l++] = NULL;
 
-                    int *result = malloc((n_formula+1)*sizeof(int));
-                    memcpy(result, formula, (n_formula+1)*sizeof(int));
+                    int *result1 = malloc((n_formula+1)*sizeof(int));
+                    int *result2 = malloc((n_formula+1)*sizeof(int));
+                    memcpy(result1, formula, (n_formula+1)*sizeof(int));
 
                     /* here the principle is a bit more straightforward than in
                      * r_medial - we simply remove the entire toplevel AND
                      * chunk that we found and rebuild it out of its
                      * constituent aruments, applying the switch in the process
                      */
-                    result = yank(result, and);
-                    int *a1 = splice_l(OP_OR, formula, arglist+delim[0]);
+                    result1 = yank(result1, and);
+                    memcpy(result2, result1, (length(result1)+1)*sizeof(int));
+                    /*int *a1 = splice_l(OP_OR, formula, arglist+delim[0]);
                     int *a2 = splice_l(OP_OR, formula, arglist+delim[1]);
                     int *a3 = splice_l(OP_AND, formula, args_and1);
                     int *a4 = splice_l(OP_AND, formula, args_and2);
@@ -792,9 +825,10 @@ int **r_switch(int *formula)
                     int *b1 = splice(OP_AND, 2, a3, a2);
                     int *b2 = splice(OP_OR, 2, a1, b1);
 
-                    int *c1 = splice(OP_AND, 2, a4, b2);
-                    /*
-                    result = shove(result, and, splice(OP_AND, 2,
+                    int *c1 = splice(OP_AND, 2, a4, b2);*/
+
+                    and->top--;
+                    result1 = shove(result1, and, splice(OP_AND, 2,
                             splice_l(OP_AND, formula, args_and2),
                             splice(OP_OR, 2,
                                 splice_l(OP_OR, formula, arglist+delim[0]),
@@ -802,18 +836,43 @@ int **r_switch(int *formula)
                                     splice_l(OP_AND, formula, args_and1),
                                     splice_l(OP_OR, formula,
                                         arglist+delim[1])))));
-                                        */
-
-                    and->top--;
-                    result = shove(result, and, c1);
+                    //result1 = shove(result1, and, c1);
                     and->top++;
                     // TODO: splice is limited in that it can only take int *s,
                     // and likewise for splice_l. consider writing a splice_x
                     // that can take 
                     // TODO: sanitization? I think the splices sort this out
 
-                    ret = realloc(ret, (++n_ret+1)*sizeof(int *));
+                    /*ret = realloc(ret, (++n_ret+1)*sizeof(int *));
                     ret[n_ret-1] = result;
+                    ret[n_ret] = NULL;*/
+
+
+                    //memcpy(result2, formula, (n_formula+1)*sizeof(int));
+
+                    //result2 = yank(result2, and);
+
+                    and->top--;
+                    result2 = shove(result2, and, splice(OP_AND, 2,
+                            splice_l(OP_AND, formula, args_and2),
+                            splice(OP_OR, 2,
+                                splice_l(OP_OR, formula, arglist+delim[1]),
+                                splice(OP_AND, 2,
+                                    splice_l(OP_AND, formula, args_and1),
+                                    splice_l(OP_OR, formula,
+                                        arglist+delim[0])))));
+
+                    //result2 = shove(result2, and, c1);
+                    and->top++;
+
+                    /* what the fuck is going on here? well, since the
+                     * partition function works on an unordered set basis, we
+                     * must take both possible combinations for each partition
+                     * into two chunks */
+                    n_ret += 2;
+                    ret = realloc(ret, (n_ret+1)*sizeof(int *));
+                    ret[n_ret-2] = result1;
+                    ret[n_ret-1] = result2;
                     ret[n_ret] = NULL;
                 }
 
@@ -1121,7 +1180,11 @@ int equiv(int *f1, struct range_t *t1, int *f2, struct range_t *t2)
     if(t1 == NULL) { t1 = range(f1, 0); tofree_t1 = 1; }
     if(t2 == NULL) { t2 = range(f2, 0); tofree_t2 = 1; }
 
-    if(f1[t1->top] != f2[t2->top]) return 0;
+    if(f1[t1->top] != f2[t2->top]) {
+        if(tofree_t1) free(t1);
+        if(tofree_t2) free(t2);
+        return 0;
+    }
 
     struct range_t **args1 = arguments(f1, t1);
     struct range_t **args2 = arguments(f2, t2);
@@ -1251,7 +1314,7 @@ int implies(int *f1, int *f2)
         exit(1);
     }
 
-    uint16_t input = 0x1<<varmax;
+    uint16_t input = (0x1<<(varmax+1))-1;
     
     while(input && (eval(f1, t1, input) <= eval(f2, t2, input))) input--;
 
@@ -1259,6 +1322,51 @@ int implies(int *f1, int *f2)
     free(t2);
 
     return input ? 0 : 1;
+}
+
+int trivial(int *f1, int *f2)
+{
+    struct range_t *t1 = range(f1, 0);
+    struct range_t *t2 = range(f2, 0);
+
+    int varmax = 0;
+    int i;
+
+    for(i = 0; i < t1->bot+1; i++)
+        if(varmax < f1[i]) varmax = f1[i];
+    for(i = 0; i < t2->bot+1; i++)
+        if(varmax < f2[i]) varmax = f2[i];
+
+    /* this is annoying but not really an issue at this stage */
+    if(varmax > 15) {
+        fprintf(stderr,
+                "ERROR: currently switch can only handle up to 15 "
+                "residual arguments; exiting.\n");
+        exit(1);
+    }
+
+    uint16_t input = (0x1<<(varmax+1))-1;
+    int triv = 0;
+    
+    for(i = 0; i <= varmax; i++) {
+        uint16_t control1 = (0x1<<i);
+        uint16_t control2 = ~(0x1<<i);
+
+        while(input &&
+                (eval(f1, t1, input|control1) <= eval(f2, t2, input&control2)))
+            input--;
+
+        if(!input) {
+            triv = 1;
+            break;
+        }
+    }
+//        while(input && (eval(f1, t1, input) <= eval(f2, t2, input))) input--;
+
+    free(t1);
+    free(t2);
+
+    return triv ? 1 : 0;
 }
 
 int find(int **formulae, int n_formulae, int *formula)
@@ -1288,7 +1396,7 @@ int prove(int *f1, int *f2)
 
     if(equiv(f1, NULL, f2, NULL)) return 1;
 
-    printformula(f1);
+//    printformula(f1);
 
     /* can we prove it with one step of mix, switch or medial? */
     int **next_mix = r_mix(f1);
@@ -1324,7 +1432,7 @@ int prove(int *f1, int *f2)
 
     /* mix */
     for(i = 0; i < n_next_mix; i++) {
-        printf("prove from mix\n");
+//        printf("prove from mix\n");
         if(prove(next_mix[i], f2)) {
             free_l((void **)next_mix);
             free_l((void **)next_switch);
@@ -1335,7 +1443,8 @@ int prove(int *f1, int *f2)
 
     /* switch */
     for(i = 0; i < n_next_switch; i++) {
-        printf("prove from switch\n");
+//        printf("prove from switch\n");
+//        printformula(next_switch[i]);
         if(prove(next_switch[i], f2)) {
             free_l((void **)next_mix);
             free_l((void **)next_switch);
@@ -1346,7 +1455,7 @@ int prove(int *f1, int *f2)
 
     /* medial */
     for(i = 0; i < n_next_medial; i++) {
-        printf("prove from medial\n");
+//        printf("prove from medial\n");
         if(prove(next_medial[i], f2)) {
             free_l((void **)next_mix);
             free_l((void **)next_switch);
@@ -1428,28 +1537,40 @@ int main(int argc, char *argv[])
 
     //printf("%d\n", implies(fff, xyz));
 
-    int **bfs = genbf(4);
+    int **bfs = genbf(6);
     int i, j;
     int n_bfs = length_l((void **)bfs);
     for(i = 3; i < n_bfs; i++) {
         for(j = 0; j < n_bfs; j++) {
             if(implies(bfs[i], bfs[j])) {
-                printf("%d implies %d\n", i, j);
                 if(prove(bfs[i],bfs[j])) {
-                    printf("provable\n");
+                    printf("[PASS](%d) %d -> %d\n", n_bfs, i+1, j+1);
                 }
                 else {
-                    printf("NOT provable!\nA=");
-                    printformula(bfs[i]);
-                    printf("B=");
-                    printformula(bfs[j]);
-                    exit(0);
+                    int triv = trivial(bfs[i], bfs[j]);
+                    if(!triv) {
+                        printf("[FAIL] %d -> %d\n", i, j);
+                        printf("NOT provable!\nA=");
+                        printformula(bfs[i]);
+                        printf("B=");
+                        printformula(bfs[j]);
+
+                        printf("and trivial? %d\n", triv);
+                        exit(0);
+                    }
                 }
                 //printf("%d %s %d\n", i, prove(bfs[i],bfs[j])?"proves":"does not prove", j);
             }
         }
     }
+    printf("all inferences have proofs under {mix,switch,medial} and triviality\n");
+    //printf("for the record: we had %d bfs\n", n_bfs);
     free_l((void **)bfs);
+
+    /*int abc[] = {OP_AND, OP_OR, OP_AND, 1, 3, OP_CLOSE, 0, OP_CLOSE, 2, OP_CLOSE, OP_FIN};
+    int def[] = {OP_OR, OP_AND, OP_OR, 2, 3, OP_CLOSE, 0, OP_CLOSE, 1, OP_CLOSE, OP_FIN};
+    printf("%d %d %d %d\n", eval(abc, NULL, 14), eval(def, NULL, 6), implies(abc, def), trivial(abc, def));
+    printf("%d %d %d %d\n", eval(abc, NULL, 13), eval(def, NULL, 5), implies(abc, def), trivial(abc, def));*/
 
     //printf("%d\n", implies(xyz, g));
     //printf("%d\n", prove(xyz, g));

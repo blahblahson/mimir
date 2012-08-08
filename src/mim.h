@@ -42,6 +42,7 @@ int length(const int *);
 int length_l(void **);
 
 int scope(int *, int);
+int parent(int *, int);
 struct range_t *range(int *, int);
 struct range_t **arguments(int *, struct range_t *);
 struct range_t **arguments_op(int *, struct range_t *, enum OPERATOR);
