@@ -1361,10 +1361,10 @@ int trivial(int *f1, int *f2)
         exit(1);
     }
 
-    uint16_t input = (0x1<<(varmax+1))-1;
     int triv = 0;
     
     for(i = 0; i <= varmax; i++) {
+        uint16_t input = (0x1<<(varmax+1))-1;
         uint16_t control1 = (0x1<<i);
         uint16_t control2 = ~(0x1<<i);
 
@@ -1491,12 +1491,12 @@ int quickprove(int *f1, int *f2, int f2vi)
 
     int **next_medial = r_medial(f1);
     int n_next_medial = length_l((void **)next_medial);
-    if(find(next_medial, n_next_medial, f2) >= 0) {
+    /*if(find(next_medial, n_next_medial, f2) >= 0) {
         free_l((void **)next_mix);
         free_l((void **)next_switch);
         free_l((void **)next_medial);
         return 1;
-    }
+    }*/
 
     /* if not, can we prove it from any of the results we got from mix, switch,
      * medial with further steps? */
@@ -1529,16 +1529,16 @@ int quickprove(int *f1, int *f2, int f2vi)
     }
 
     /* medial */
-    for(i = 0; i < n_next_medial; i++) {
+    //for(i = 0; i < n_next_medial; i++) {
 //        printf("prove from medial\n");
-        if(quickprove(next_medial[i], f2, f2vi)) {
-            free_l((void **)next_mix);
-            free_l((void **)next_switch);
+    //    if(quickprove(next_medial[i], f2, f2vi)) {
+    //        free_l((void **)next_mix);
+    //        free_l((void **)next_switch);
             /* ok, I think this function could do with some gotos... */
-            free_l((void **)next_medial);
-            return 1;
-        }
-    }
+    //        free_l((void **)next_medial);
+    //        return 1;
+    //    }
+    //}
 
     /* and assuming we can't do THAT, there's no way we can prove it */
     free_l((void **)next_mix);
@@ -1697,15 +1697,29 @@ int main(int argc, char *argv[])
 
     //printf("%d\n", implies(fff, xyz));
 
-    int **bfs = genbf(6);
+    int m1[] = {OP_OR, OP_AND, 0, 1, OP_CLOSE, OP_AND, 2, 3, OP_CLOSE, OP_CLOSE, OP_FIN};
+    int m2[] = {OP_AND, OP_OR, 0, 2, OP_CLOSE, OP_OR, 1, 3, OP_CLOSE, OP_CLOSE, OP_FIN};
+    printf("%d, %d\n", quickprove(m1, m2, 0), trivial(m1, m2));
+    printf("--------------\n");
+    // 10->129
+    int **bfs = genbf(4);
     int i, j;
     int n_bfs = length_l((void **)bfs);
-    for(i = n_bfs-1; i > 0; i--) {
+    for(i = 0; i < n_bfs; i++) {
+        printformula(bfs[i]);
         for(j = 0; j < n_bfs; j++) {
             if(implies(bfs[i], bfs[j])) {
+//                printformula(bfs[j]);
+                //int triv = trivial(bfs[i], bfs[j]);
+                //if(triv) {
+                    /*printformula(bfs[i]);
+                    printformula(bfs[j]);*/
+                //    printf("[PASS(trivial)](%d) %d -> %d\n", n_bfs, i+1, j+1);
+                //    continue;
+                //}
                 int f2vi = validinputs(bfs[j], NULL);
                 if(quickprove(bfs[i],bfs[j],f2vi)) {
-                    printf("[PASS](%d) %d -> %d\n", n_bfs, i+1, j+1);
+                    printf("[PASS(exhaust)](%d) %d -> %d\n", n_bfs, i+1, j+1);
                 }
                 else {
                     int triv = trivial(bfs[i], bfs[j]);
@@ -1719,6 +1733,12 @@ int main(int argc, char *argv[])
                         printf("and trivial? %d\n", triv);
                         exit(0);
                     }
+                    else {
+                        printf("trivial:\n");
+                        printformula(bfs[i]);
+                        printformula(bfs[j]);
+                        printf("_________\n");
+                    }
                 }
                 //printf("%d %s %d\n", i, prove(bfs[i],bfs[j])?"proves":"does not prove", j);
             }
@@ -1726,7 +1746,11 @@ int main(int argc, char *argv[])
     }
     printf("all inferences have proofs under {mix,switch,medial} and triviality\n");
     //printf("for the record: we had %d bfs\n", n_bfs);
+    printf("%d\n", find(bfs, n_bfs, m1));
+    printformula(m1);
+    for(i = 0; i < n_bfs; i++) printformula(bfs[i]);
     free_l((void **)bfs);
+
 
     //int help[] = {-3, -4, -3, 2, 3, 4, 5, -2, 1, -2, 0, -2, -1};
     //int help2[] = {-4, -3, 1, 2, 3, 4, 5, -2, 0, -2, -1};
