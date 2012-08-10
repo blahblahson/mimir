@@ -100,6 +100,14 @@ int parent(int *formula, int s)
     return i;
 }
 
+int parent_deep(int *formula, int s)
+{
+    int i;
+    for(i = s; i > 0; --i)
+        if(formula[i] < ATOMLIM) break;
+    return i;
+}
+
 int atomcount(int *formula, struct range_t *t)
 {
     int tofree_t = 0;
@@ -701,15 +709,46 @@ int **r_medial(int *formula)
                             splice(OP_AND, 2,
                                 splice(OP_OR, 2,
                                     splice_l(OP_AND, formula,
-                                        arglist+delim[0]),
+                                        arglist+delim[0]),  /* A */
                                     splice_l(OP_AND, formula,
-                                        arglist+delim[1])),
+                                        arglist+delim[1])), /* C */
                                 splice(OP_OR, 2,
                                     splice_l(OP_AND, formula,
-                                        arglist+delim[2]),
+                                        arglist+delim[2]),  /* B */
                                     splice_l(OP_AND, formula,
-                                        arglist+delim[3]))));
+                                        arglist+delim[3]))));/*D */
                     // TODO: sanitization!!!!
+
+                    result = sanitize(result, NULL);
+
+                    ret = realloc(ret, (++n_ret+1)*sizeof(int *));
+                    ret[n_ret-1] = result;
+                    ret[n_ret] = NULL;
+
+                    result = malloc((n_formula+1)*sizeof(int));
+                    memcpy(result, formula, (n_formula+1)*sizeof(int));
+
+                    /* the order here is important, otherwise we would have to
+                     * compensate (using the return value of the first yank)
+                     * to redefine the position of arg2
+                     */
+                    result = yank(result, &and2);
+                    result = yank(result, &and1);
+                    result = shove(result, or,
+                            splice(OP_AND, 2,
+                                splice(OP_OR, 2,
+                                    splice_l(OP_AND, formula,
+                                        arglist+delim[0]),  /* A */
+                                    splice_l(OP_AND, formula,
+                                        arglist+delim[3])), /* D */
+                                splice(OP_OR, 2,
+                                    splice_l(OP_AND, formula,
+                                        arglist+delim[2]),  /* B */
+                                    splice_l(OP_AND, formula,
+                                        arglist+delim[1]))));/*C */
+                    // TODO: sanitization!!!!
+
+                    result = sanitize(result, NULL);
 
                     ret = realloc(ret, (++n_ret+1)*sizeof(int *));
                     ret[n_ret-1] = result;
@@ -879,6 +918,9 @@ int **r_switch(int *formula)
                     //result2 = shove(result2, and, c1);
                     and->top++;
 
+                    result1 = sanitize(result1, NULL);
+                    result2 = sanitize(result2, NULL);
+
                     /* what the fuck is going on here? well, since the
                      * partition function works on an unordered set basis, we
                      * must take both possible combinations for each partition
@@ -905,6 +947,58 @@ int **r_switch(int *formula)
     }
 
     return ret;
+}
+
+/* this is quite an expensive function to call I think... */
+int *sanitize(int *formula, struct range_t *t)
+{
+    int tofree_t = 0;
+    if(t == NULL) { t = range(formula, 0); tofree_t = 1; }
+
+    if(formula[t->top] >= ATOMLIM) {
+        if(tofree_t) free(t);
+        return formula;
+    }
+
+    struct range_t **args = arguments(formula, t);
+    int n_args = length_l((void **)args);
+    int n_formula = length(formula);
+    int i;
+    /* we exploit the fact that while sanitize will change and resize formula,
+     * it will only fuck the ranges of subsequent arguments, not preceding
+     * ones, arguments() gives arguments in ascending index order, and so we
+     * approach backwards where this is not a problem */
+    for(i = n_args-1; i >= 0; i--)
+        formula = sanitize(formula, args[i]);
+
+    free_l((void **)args);
+    args = arguments(formula, t);
+
+    n_args = length_l((void **)args);
+
+    if(n_args == 1) {
+        memmove(formula+t->top, formula+t->top+1, (n_formula-t->top)*sizeof(int));
+        memmove(formula+t->bot-1, formula+t->bot, (n_formula-t->bot)*sizeof(int));
+        n_formula -= 2;
+    }
+    else {
+        for(i = n_args-1; i >= 0; i--) {
+            if(formula[args[i]->top] == formula[t->top]) {
+                memmove(formula+args[i]->top, formula+args[i]->top+1,
+                        (n_formula-args[i]->top)*sizeof(int));
+                memmove(formula+args[i]->bot-1, formula+args[i]->bot,
+                        (n_formula-args[i]->bot)*sizeof(int));
+                n_formula -= 2;
+            }
+        }
+    }
+
+    formula = realloc(formula, (n_formula+1)*sizeof(int));
+
+    if(tofree_t) free(t);
+    free_l((void **)args);
+
+    return formula;
 }
 
 int **r_mix(int *formula)
@@ -966,6 +1060,8 @@ int **r_mix(int *formula)
                             splice_l(OP_AND, formula, arglist+delim[1])));
                 and->top++;
 
+                result = sanitize(result, NULL);
+
                 ret = realloc(ret, (++n_ret+1)*sizeof(int *));
                 ret[n_ret-1] = result;
                 ret[n_ret] = NULL;
@@ -997,6 +1093,8 @@ int **r_mix(int *formula)
                                 splice_l(OP_AND, formula, arglist+delim[p[0]]),
                                 splice_l(OP_AND, formula, arglist+delim[p[1]])));
 
+                    result = sanitize(result, NULL);
+
                     ret = realloc(ret, (++n_ret+1)*sizeof(int *));
                     ret[n_ret-1] = result;
                     ret[n_ret] = NULL;
@@ -1012,6 +1110,7 @@ int **r_mix(int *formula)
 
     return ret;
 }
+
 
 
 
@@ -1127,6 +1226,88 @@ int **genbf(int n)
     }
 
     return ret;
+}
+
+int find(int **formulae, int n_formulae, int *formula)
+{
+    if(n_formulae <= 0) n_formulae = length_l((void **)formulae);
+    struct range_t *t = range(formula, 0);
+
+    int i;
+    for(i = 0; i < n_formulae; i++) {
+        if(equiv(formulae[i], NULL, formula, t)) {
+            free(t);
+            return i;
+        }
+    }
+
+    free(t);
+
+    return -1;
+}
+
+int **push_uniq(int **collection, int **list)
+{
+    int n_list = length_l((void **)list);
+    if(n_list <= 0) return collection;
+    int n_collection = length_l((void **)collection);
+    if(n_collection <= 0) {
+        /* this could cause issues but I think it's ok since this is quite an
+         * internal function */
+        collection = NULL;
+        n_collection = 0;
+    }
+
+    collection = realloc(collection, (n_collection+n_list+1)*sizeof(int *));
+
+    int i;
+    for(i = 0; i < n_list; i++) {
+        if(find(collection, n_collection, list[i]) < 0)
+            collection[n_collection++] = list[i];
+        else
+            free(list[i]);
+    }
+
+    collection[n_collection] = NULL;
+
+    if(n_collection == 0) {
+        free(collection);
+        free(list);
+        return NULL;
+    }
+
+    collection = realloc(collection, (n_collection+1)*sizeof(int *));
+    printf("%d\n", n_collection);
+
+    return collection;
+}
+
+int **exhaust(int *formula, int **collection)
+{
+    int **m = r_mix(formula);
+    int n_m = length_l((void **)m);
+    if(n_m <= 0) {
+        free_l((void **)m); // may be redundant
+        return collection;
+    }
+
+    int i;
+    for(i = 0; i < n_m; i++) collection = exhaust(m[i], collection);
+
+    collection = push_uniq(collection, m);
+
+    return collection;
+}
+
+int **genbf2(int n)
+{
+    int conj[n+3], i;
+    conj[0] = OP_AND;
+    for(i = 0; i < n; i++) conj[i+1] = i;
+    conj[n+1] = OP_CLOSE;
+    conj[n+2] = OP_FIN;
+
+    return exhaust(conj, NULL);
 }
 
 /*int cmpatomp(const void *a, const void *b)
@@ -1385,24 +1566,6 @@ int trivial(int *f1, int *f2)
     return triv ? 1 : 0;
 }
 
-int find(int **formulae, int n_formulae, int *formula)
-{
-    if(n_formulae <= 0) n_formulae = length_l((void **)formulae);
-    struct range_t *t = range(formula, 0);
-
-    int i;
-    for(i = 0; i < n_formulae; i++) {
-        if(equiv(formulae[i], NULL, formula, t)) {
-            free(t);
-            return i;
-        }
-    }
-
-    free(t);
-
-    return -1;
-}
-
 int validinputs(int *formula, struct range_t *t)
 {
     int tofree_t = 0;
@@ -1491,12 +1654,12 @@ int quickprove(int *f1, int *f2, int f2vi)
 
     int **next_medial = r_medial(f1);
     int n_next_medial = length_l((void **)next_medial);
-    /*if(find(next_medial, n_next_medial, f2) >= 0) {
+    if(find(next_medial, n_next_medial, f2) >= 0) {
         free_l((void **)next_mix);
         free_l((void **)next_switch);
         free_l((void **)next_medial);
         return 1;
-    }*/
+    }
 
     /* if not, can we prove it from any of the results we got from mix, switch,
      * medial with further steps? */
@@ -1529,16 +1692,16 @@ int quickprove(int *f1, int *f2, int f2vi)
     }
 
     /* medial */
-    //for(i = 0; i < n_next_medial; i++) {
+    for(i = 0; i < n_next_medial; i++) {
 //        printf("prove from medial\n");
-    //    if(quickprove(next_medial[i], f2, f2vi)) {
-    //        free_l((void **)next_mix);
-    //        free_l((void **)next_switch);
+        if(quickprove(next_medial[i], f2, f2vi)) {
+            free_l((void **)next_mix);
+            free_l((void **)next_switch);
             /* ok, I think this function could do with some gotos... */
-    //        free_l((void **)next_medial);
-    //        return 1;
-    //    }
-    //}
+            free_l((void **)next_medial);
+            return 1;
+        }
+    }
 
     /* and assuming we can't do THAT, there's no way we can prove it */
     free_l((void **)next_mix);
@@ -1697,26 +1860,35 @@ int main(int argc, char *argv[])
 
     //printf("%d\n", implies(fff, xyz));
 
-    int m1[] = {OP_OR, OP_AND, 0, 1, OP_CLOSE, OP_AND, 2, 3, OP_CLOSE, OP_CLOSE, OP_FIN};
+    /*int m1[] = {OP_OR, OP_AND, 0, 1, OP_CLOSE, OP_AND, 2, 3, OP_CLOSE, OP_CLOSE, OP_FIN};
     int m2[] = {OP_AND, OP_OR, 0, 2, OP_CLOSE, OP_OR, 1, 3, OP_CLOSE, OP_CLOSE, OP_FIN};
     printf("%d, %d\n", quickprove(m1, m2, 0), trivial(m1, m2));
-    printf("--------------\n");
+    printf("--------------\n");*/
+
+
+    /*int **bfs = genbf2(5);
+    int i;
+    int n_bfs = length_l((void **)bfs);
+    //for(i = 0; i < n_bfs; i++) printformula(bfs[i]);
+    free_l((void **)bfs);*/
+
     // 10->129
-    int **bfs = genbf(4);
+    int **bfs = genbf2(6);
     int i, j;
     int n_bfs = length_l((void **)bfs);
+    //for(i = 0; i < n_bfs; i++) printformula(bfs[i]);
     for(i = 0; i < n_bfs; i++) {
-        printformula(bfs[i]);
+        //printformula(bfs[i]);
         for(j = 0; j < n_bfs; j++) {
             if(implies(bfs[i], bfs[j])) {
 //                printformula(bfs[j]);
-                //int triv = trivial(bfs[i], bfs[j]);
-                //if(triv) {
+                int triv = trivial(bfs[i], bfs[j]);
+                if(triv) {
                     /*printformula(bfs[i]);
                     printformula(bfs[j]);*/
-                //    printf("[PASS(trivial)](%d) %d -> %d\n", n_bfs, i+1, j+1);
-                //    continue;
-                //}
+                    printf("[PASS(trivial)](%d) %d -> %d\n", n_bfs, i+1, j+1);
+                    continue;
+                }
                 int f2vi = validinputs(bfs[j], NULL);
                 if(quickprove(bfs[i],bfs[j],f2vi)) {
                     printf("[PASS(exhaust)](%d) %d -> %d\n", n_bfs, i+1, j+1);
@@ -1730,15 +1902,17 @@ int main(int argc, char *argv[])
                         printf("B=");
                         printformula(bfs[j]);
 
-                        printf("and trivial? %d\n", triv);
+                        //quickprove(bfs[i], bfs[j], f2vi);
+                        //r_medial(bfs[i]);
+                        //printf("and trivial? %d\n", triv);
                         exit(0);
                     }
-                    else {
+                    /*else {
                         printf("trivial:\n");
                         printformula(bfs[i]);
                         printformula(bfs[j]);
                         printf("_________\n");
-                    }
+                    }*/
                 }
                 //printf("%d %s %d\n", i, prove(bfs[i],bfs[j])?"proves":"does not prove", j);
             }
@@ -1746,9 +1920,9 @@ int main(int argc, char *argv[])
     }
     printf("all inferences have proofs under {mix,switch,medial} and triviality\n");
     //printf("for the record: we had %d bfs\n", n_bfs);
-    printf("%d\n", find(bfs, n_bfs, m1));
+    /*printf("%d\n", find(bfs, n_bfs, m1));
     printformula(m1);
-    for(i = 0; i < n_bfs; i++) printformula(bfs[i]);
+    for(i = 0; i < n_bfs; i++) printformula(bfs[i]);*/
     free_l((void **)bfs);
 
 

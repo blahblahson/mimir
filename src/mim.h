@@ -56,6 +56,8 @@ int *splice_l(enum OPERATOR, const int *, struct range_t **);
 int *yank(int *, struct range_t *);
 int *paste(int *, struct range_t *, int *);
 
+int *sanitize(int *, struct range_t *);
+
 int **r_medial(int *);
 int **r_switch(int *);
 int **r_mix(int *);
