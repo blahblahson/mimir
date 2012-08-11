@@ -790,6 +790,7 @@ int **r_switch(int *formula)
     for(i = 0; i < n_formula; i++) {
         if(formula[i] != OP_AND) continue;
         struct range_t *and = range(formula, i);
+        int andcorr = 1;//and->top != 0 ? 1 : 0;
 
         struct range_t **and_ors = arguments_op(formula, and, OP_OR);
 
@@ -880,7 +881,7 @@ int **r_switch(int *formula)
 
                     int *c1 = splice(OP_AND, 2, a4, b2);*/
 
-                    and->top--;
+                    if(andcorr) and->top--;
                     result1 = shove(result1, and, splice(OP_AND, 2,
                             splice_l(OP_AND, formula, args_and2),
                             splice(OP_OR, 2,
@@ -890,7 +891,7 @@ int **r_switch(int *formula)
                                     splice_l(OP_OR, formula,
                                         arglist+delim[1])))));
                     //result1 = shove(result1, and, c1);
-                    and->top++;
+                    if(andcorr) and->top++;
                     // TODO: splice is limited in that it can only take int *s,
                     // and likewise for splice_l. consider writing a splice_x
                     // that can take 
@@ -905,7 +906,7 @@ int **r_switch(int *formula)
 
                     //result2 = yank(result2, and);
 
-                    and->top--;
+                    if(andcorr) and->top--;
                     result2 = shove(result2, and, splice(OP_AND, 2,
                             splice_l(OP_AND, formula, args_and2),
                             splice(OP_OR, 2,
@@ -916,7 +917,7 @@ int **r_switch(int *formula)
                                         arglist+delim[0])))));
 
                     //result2 = shove(result2, and, c1);
-                    and->top++;
+                    if(andcorr) and->top++;
 
                     result1 = sanitize(result1, NULL);
                     result2 = sanitize(result2, NULL);
@@ -1011,6 +1012,7 @@ int **r_mix(int *formula)
     for(i = 0; i < n_formula; i++) {
         if(formula[i] != OP_AND) continue;
         struct range_t *and = range(formula, i);
+        int andcorr = 1;//and->top != 0 ? 1 : 0;
 
         struct range_t **args_and = arguments(formula, and);
 
@@ -1053,12 +1055,12 @@ int **r_mix(int *formula)
                 memcpy(result, formula, (n_formula+1)*sizeof(int));
 
                 result = yank(result, and);
-                and->top--;
+                if(andcorr) and->top--;
                 result = shove(result, and,
                         splice(OP_OR, 2,
                             splice_l(OP_AND, formula, arglist+delim[0]),
                             splice_l(OP_AND, formula, arglist+delim[1])));
-                and->top++;
+                if(andcorr) and->top++;
 
                 result = sanitize(result, NULL);
 
@@ -1231,6 +1233,7 @@ int **genbf(int n)
 int find(int **formulae, int n_formulae, int *formula)
 {
     if(n_formulae <= 0) n_formulae = length_l((void **)formulae);
+    if(n_formulae <= 0) return -1;
     struct range_t *t = range(formula, 0);
 
     int i;
@@ -1259,6 +1262,7 @@ int **push_uniq(int **collection, int **list)
     }
 
     collection = realloc(collection, (n_collection+n_list+1)*sizeof(int *));
+    collection[n_collection] = NULL;
 
     int i;
     for(i = 0; i < n_list; i++) {
@@ -1277,7 +1281,7 @@ int **push_uniq(int **collection, int **list)
     }
 
     collection = realloc(collection, (n_collection+1)*sizeof(int *));
-    printf("%d\n", n_collection);
+    fprintf(stderr, "%d\n", n_collection);
 
     return collection;
 }
@@ -1370,6 +1374,7 @@ int equiv(int *a, struct range_t *ar, int *b, struct range_t *br)
 /* are the formulae a, b the same? */
 int equiv(int *f1, struct range_t *t1, int *f2, struct range_t *t2)
 {
+    if(f1 == NULL || f2 == NULL) return 0;
     int tofree_t1 = 0;
     int tofree_t2 = 0;
     if(t1 == NULL) { t1 = range(f1, 0); tofree_t1 = 1; }
@@ -1873,17 +1878,35 @@ int main(int argc, char *argv[])
     free_l((void **)bfs);*/
 
     // 10->129
-    int **bfs = genbf2(6);
+    int **bfs = genbf2(7);
     int i, j;
     int n_bfs = length_l((void **)bfs);
+    int totalinf = 0;
+    int totaltriv = 0;
+
+    FILE *fh = fopen("./bfs.7", "w+");
+    for(i = 0; i < n_bfs; i++) {
+        printf("writing %d/%d\n", i+1, n_bfs);
+        fwrite(bfs[i], sizeof(int), length(bfs[i])+1, fh);
+    }
+
+    fclose(fh);
+    exit(0);
     //for(i = 0; i < n_bfs; i++) printformula(bfs[i]);
     for(i = 0; i < n_bfs; i++) {
-        //printformula(bfs[i]);
+        printformula(bfs[i]);
         for(j = 0; j < n_bfs; j++) {
             if(implies(bfs[i], bfs[j])) {
+                totalinf++;
 //                printformula(bfs[j]);
                 int triv = trivial(bfs[i], bfs[j]);
+
+
                 if(triv) {
+                    /*printformula(bfs[i]);
+                    printf("-------------\n");
+                    printformula(bfs[j]);*/
+                    totaltriv++;
                     /*printformula(bfs[i]);
                     printformula(bfs[j]);*/
                     printf("[PASS(trivial)](%d) %d -> %d\n", n_bfs, i+1, j+1);
@@ -1918,7 +1941,9 @@ int main(int argc, char *argv[])
             }
         }
     }
-    printf("all inferences have proofs under {mix,switch,medial} and triviality\n");
+    printf("all inferences have proofs under {mix,switch,medial} and triviality\n"
+            "total inferences checked: %d\n"
+            "of which trivial: %d\n", totalinf, totaltriv);
     //printf("for the record: we had %d bfs\n", n_bfs);
     /*printf("%d\n", find(bfs, n_bfs, m1));
     printformula(m1);
