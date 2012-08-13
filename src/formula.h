@@ -1,18 +1,5 @@
-#ifndef _MIM_H_
-#define _MIM_H_
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <stdarg.h>
-#include <string.h>
-#include <math.h>
-
-/* util */
-#define max(a,b) (a>b?a:b)
-#define min(a,b) (a<b?a:b)
-
-//#define partition next
+#ifndef _FORMULA_H_
+#define _FORMULA_H_
 
 /* available operators
  * NOTE: the type enum F_OPERATOR is rarely if ever used, and int is used
@@ -39,31 +26,20 @@ struct range_t {
 };
 
 int length(const int *);
-int length_l(void **);
-
 int scope(int *, int);
 int parent(int *, int);
+int parent_deep(int *, int);
+int atomcount(int *, struct range_t *);
 struct range_t *range(int *, int);
 struct range_t **arguments(int *, struct range_t *);
 struct range_t **arguments_op(int *, struct range_t *, enum OPERATOR);
 struct range_t **arguments_ex(int *, struct range_t *, struct range_t *);
 
-int *pair(int, int *);
-int partition(int, int *, int *);
-
 int *splice(enum OPERATOR, int, ...);
 int *splice_l(enum OPERATOR, const int *, struct range_t **);
 int *yank(int *, struct range_t *);
-int *paste(int *, struct range_t *, int *);
+int *shove(int *, struct range_t *, int *);
 
 int *sanitize(int *, struct range_t *);
 
-int **r_medial(int *);
-int **r_switch(int *);
-int **r_mix(int *);
-
-int equiv(int *, struct range_t *, int *, struct range_t *);
-
-int **genbf(int);
-
-#endif /* _MIM_H_ */
+#endif /* _FORMULA_H_ */

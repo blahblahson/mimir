@@ -1,4 +1,9 @@
-2012-08-02	bps
+2012-08-13  bps
+	* general: I forgot I had a changelog, oops
+	* all: split up everything into its own file finally. main.c is still a
+	bit messy, though.
+
+2012-08-02  bps
 	* README: added, basic (poor) description of mim written
 	* COPYING: added, MIT/X11 license
 	* ChangeLog: added
