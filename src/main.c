@@ -182,7 +182,7 @@ int **genbf_(int *atoms, int n, enum OPERATOR op, int *n_ret)
      * down on so much dynamic allocation, but we'll see... */
     if(n == 1) {
         int **ret = malloc(2*sizeof(int *));
-        ret[0] = malloc(2);
+        ret[0] = malloc(2*sizeof(int));
         // TODO: again, better way to do this?
         ret[0][0] = atoms[0]; ret[0][1] = OP_FIN;
         ret[1] = NULL;
@@ -220,6 +220,8 @@ int **genbf_(int *atoms, int n, enum OPERATOR op, int *n_ret)
         int choices[n_choices*partsize];
         int choice[partsize];
         genbf_i(partsize, n_choices, maxima, choices, choice, -1);
+        //for(i = 0; i < n_choices*partsize; i++) printf("%d ", choices[i]);
+        //printf("\n");
 
 
         struct range_t t; t.top = 0;
@@ -230,20 +232,21 @@ int **genbf_(int *atoms, int n, enum OPERATOR op, int *n_ret)
 
             /* we put them in reverse to preserve lexicographical order, since
              * shove() is a quite primitive */
-            for(j = partsize-1; j >= 0; j--)
-                shove(result, &t, subbfs[j][choices[i*partsize+j]]);
+            for(j = partsize-1; j >= 0; j--) {
+                //printf("n=%d, n_choices=%d i=%d j=%d subbfs[%d][choices[%d]]=subbfs[%d][%d]\n", n, n_choices, i, j, j, i*partsize+j, j, choices[i*partsize+j]);
+                result = shove_nf(result, &t, subbfs[j][choices[i*partsize+j]]);
+            }
+            //printf("--\n");
 
             /* now shove it onto our list to return */
             ret = realloc(ret, (++(*n_ret)+1)*sizeof(int *));
             ret[(*n_ret)-1] = result;
             ret[*n_ret] = NULL;
-
-            /* and now we're done with coice i, so free it */
-            //free(choices[i]);
         }
+        //printf("----\n");
 
         /* free up the rest of the stuff... */
-        //for(i = 0; i < partsize; i++) free(subbfs[i]);
+        for(i = 0; i < partsize; i++) free_l((void **)subbfs[i]);
     }
 
     return ret;
@@ -287,7 +290,16 @@ int **genbf(int n)
 
 int main(int argc, char *argv[])
 {
-    int **bfs = genbf(3);
+    /*int newinfA[] = {OP_AND, OP_OR, 0, OP_AND, 1, 2, OP_CLOSE, OP_CLOSE, OP_OR, OP_AND, 3, 4, OP_CLOSE, OP_AND, 5, 6, OP_CLOSE, OP_CLOSE, OP_OR, 7, OP_AND, 8, 9, OP_CLOSE, OP_CLOSE, OP_CLOSE, OP_FIN};
+    int newinfB[] = {OP_OR, OP_AND, OP_OR, 3, 7, OP_CLOSE, OP_OR, 0, OP_AND, 4, 8, OP_CLOSE, OP_CLOSE, OP_CLOSE, OP_AND, OP_OR, 2, 6, OP_CLOSE, OP_OR, 9, OP_AND, 1, 5, OP_CLOSE, OP_CLOSE, OP_CLOSE, OP_CLOSE, OP_FIN};
+
+    if(implies(newinfA,newinfB)) exit(1);
+    if(trivial(newinfA,newinfB)) exit(1);
+    if(quickprove(newinfA, newinfB, -1)) printf("can prove\n");
+    else printf("new inference\n");
+    exit(0);*/
+
+    int **bfs = genbf(8);
     int i, j;
     int n_bfs = length_l((void **)bfs);
     int totalinf = 0;
@@ -295,10 +307,12 @@ int main(int argc, char *argv[])
 
     //FILE *fh = fopen("./bfs.7", "w+");
     for(i = 0; i < n_bfs; i++) {
-        printf("writing %d/%d\n", i+1, n_bfs);
+        //printf("writing %d/%d\n", i+1, n_bfs);
         //fwrite(bfs[i], sizeof(int), length(bfs[i])+1, fh);
     }
+    printf("%d\n", i);
 
+    free_l((void **)bfs);
     //fclose(fh);
     exit(0);
     //for(i = 0; i < n_bfs; i++) printformula(bfs[i]);

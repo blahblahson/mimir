@@ -382,6 +382,35 @@ int *shove(int *formula, struct range_t *t, int *toadd)
     return ret;
 }
 
+int *shove_nf(int *formula, struct range_t *t, int *toadd)
+{
+    int n = length(formula);
+    int n_toadd = length(toadd);
+
+    int todec_toadd = 0;
+//    int start = parent(formula, t->top);
+    // TODO: we get A LOT of valgrind access errors here, to do with t->top
+    // sometimes being -1 when shove is called by r_switch... it's 3am and I
+    // can't figure out exactly what's going on so for now this will have to
+    // do... functionality seems to be fine otherwise
+    if(toadd[0] < ATOMLIM && formula[parent(formula, t->top)] == toadd[0]) {
+        toadd++;
+        n_toadd -= 2; /* no more OP or ) */
+        todec_toadd = 1; /* but before we free it, gotta -- */
+    }
+
+    int n_new = n+n_toadd;
+    int *ret = malloc((n_new+1)*sizeof(int));
+    memcpy(ret, formula, (t->top+1)*sizeof(int));
+    memcpy(ret+t->top+1, toadd, (n_toadd)*sizeof(int));
+    memcpy(ret+t->top+1+n_toadd, formula+t->top+1, (n-t->top)*sizeof(int));
+
+    //if(todec_toadd) toadd--;
+    //free(toadd);
+    free(formula);
+    return ret;
+}
+
 /* this is quite an expensive function to call I think... */
 int *sanitize(int *formula, struct range_t *t)
 {

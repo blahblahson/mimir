@@ -39,6 +39,7 @@ int *splice(enum OPERATOR, int, ...);
 int *splice_l(enum OPERATOR, const int *, struct range_t **);
 int *yank(int *, struct range_t *);
 int *shove(int *, struct range_t *, int *);
+int *shove_nf(int *, struct range_t *, int *);
 
 int *sanitize(int *, struct range_t *);
 
