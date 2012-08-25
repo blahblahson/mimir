@@ -175,6 +175,45 @@ int validinputs(int *formula, struct range_t *t)
     }
 }
 
+int quickprove2(int *f1, int *f2, int f2vi)
+{
+    /* nonsense */
+    if(f1 == NULL || f2 == NULL)
+        return 0;
+
+    //if(equiv(f1, NULL, f2, NULL)) return 1;
+
+    if(validinputs(f1, NULL)+2 > f2vi) return 0;
+
+    //printformula(f1);
+
+    int i;
+
+    /* can we prove it with one step of mix, switch or medial? */
+    /*int **next_mix = r_mix(f1);
+    int n_next_mix = length_l((void **)next_mix);
+    for(i = 0; i < n_next_mix; i++) {
+        if(implies(next_mix[i], f2)) {
+            free_l((void **)next_mix);
+            return 1;
+        }
+    }*/
+    /*if(find(next_mix, n_next_mix, f2) >= 0) {
+        free_l((void **)next_mix);
+        return 1;
+    }*/
+
+    if(r_switch2(f1, f2)) return 1;
+    if(r_medial2(f1, f2)) return 1;
+    /*if(find(next_switch, n_next_switch, f2) >= 0) {
+        free_l((void **)next_mix);
+        free_l((void **)next_switch);
+        return 1;
+    }*/
+
+    return 0;
+}
+
 int quickprove(int *f1, int *f2, int f2vi)
 {
     /* nonsense */

@@ -288,6 +288,19 @@ int **genbf(int n)
     return ret;
 }
 
+int lexorder(int *formula)
+{
+    int i, c, n = length(formula);
+    for(i = n-1, c = -1; i >= 0; i--) {
+        if(formula[i] >= ATOMLIM) {
+            if(formula[i] != c+1) return 0;
+            else c++;
+        }
+    }
+
+    return 1;
+}
+
 int main(int argc, char *argv[])
 {
     /*int newinfA[] = {OP_AND, OP_OR, 0, OP_AND, 1, 2, OP_CLOSE, OP_CLOSE, OP_OR, OP_AND, 3, 4, OP_CLOSE, OP_AND, 5, 6, OP_CLOSE, OP_CLOSE, OP_OR, 7, OP_AND, 8, 9, OP_CLOSE, OP_CLOSE, OP_CLOSE, OP_FIN};
@@ -299,7 +312,7 @@ int main(int argc, char *argv[])
     else printf("new inference\n");
     exit(0);*/
 
-    int **bfs = genbf(8);
+    int **bfs = genbf(6);
     int i, j;
     int n_bfs = length_l((void **)bfs);
     int totalinf = 0;
@@ -307,18 +320,19 @@ int main(int argc, char *argv[])
 
     //FILE *fh = fopen("./bfs.7", "w+");
     for(i = 0; i < n_bfs; i++) {
+        //printformula(bfs[i]);
         //printf("writing %d/%d\n", i+1, n_bfs);
         //fwrite(bfs[i], sizeof(int), length(bfs[i])+1, fh);
     }
     printf("%d\n", i);
 
-    free_l((void **)bfs);
-    //fclose(fh);
-    exit(0);
     //for(i = 0; i < n_bfs; i++) printformula(bfs[i]);
     for(i = 0; i < n_bfs; i++) {
-        printformula(bfs[i]);
+        if(!lexorder(bfs[i])) continue;
+
         for(j = 0; j < n_bfs; j++) {
+            if(j == i) continue;
+
             if(implies(bfs[i], bfs[j])) {
                 totalinf++;
 //                printformula(bfs[j]);
@@ -332,11 +346,11 @@ int main(int argc, char *argv[])
                     totaltriv++;
                     /*printformula(bfs[i]);
                     printformula(bfs[j]);*/
-                    printf("[PASS(trivial)](%d) %d -> %d\n", n_bfs, i+1, j+1);
+                    //printf("[PASS(trivial)](%d) %d -> %d\n", n_bfs, i+1, j+1);
                     continue;
                 }
                 int f2vi = validinputs(bfs[j], NULL);
-                if(quickprove(bfs[i],bfs[j],f2vi)) {
+                if(quickprove2(bfs[i],bfs[j],f2vi)) {
                     printf("[PASS(exhaust)](%d) %d -> %d\n", n_bfs, i+1, j+1);
                 }
                 else {
@@ -372,6 +386,7 @@ int main(int argc, char *argv[])
     printformula(m1);
     for(i = 0; i < n_bfs; i++) printformula(bfs[i]);*/
     free_l((void **)bfs);
+    //fclose(fh);
 
     return 0;
 }
