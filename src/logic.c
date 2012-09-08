@@ -23,13 +23,14 @@ int eval(int *formula, struct range_t *t, uint16_t input)
     int n_args = length_l((void **)args);
     int i;
 
-    int acc = 0; /* accumulator */
+    int acc; /* accumulator */
     if(formula[t->top] == OP_AND) {
         acc = 1;
         for(i = 0; i < n_args; i++)
             acc &= eval(formula, args[i], input);
     }
     else if(formula[t->top] == OP_OR) {
+        acc = 0;
         for(i = 0; i < n_args; i++)
             acc |= eval(formula, args[i], input);
     }
@@ -38,6 +39,53 @@ int eval(int *formula, struct range_t *t, uint16_t input)
     free_l((void **)args);
 
     return acc;
+}
+
+int eval_tf(int *formula)
+{
+    int i, skip;
+
+    if(formula[0] != OP_AND && formula[0] != OP_OR) return 0;
+
+    for(i = 1, skip = 0; ; i++) {
+        if(formula[i] < ATOMLIM) {
+            if(formula[i] == OP_CLOSE) {
+                if(--skip < 0) break;
+                else continue;
+            }
+            if(formula[i] == OP_FIN) break;
+
+            if(formula[0] == OP_AND && !eval_tf(formula+i)) return 0;
+            if(formula[0] == OP_OR && eval_tf(formula+i))   return 1;
+            skip++;
+        }
+        else if(skip) continue;
+        else {
+            if(formula[0] == OP_AND && !formula[i]) return 0;
+            if(formula[0] == OP_OR && formula[i])   return 1;
+        }
+    }
+
+    return formula[0] == OP_AND ? 1 : 0;
+}
+
+int eval2(int *formula, uint16_t input)
+{
+    int n_f = length(formula);
+    int *f = malloc((n_f+1)*sizeof(int));
+    memcpy(f, formula, (n_f+1)*sizeof(int));
+
+    int i;
+    for(i = 0; i < n_f; i++) {
+        /* initialize the evaluation string */
+        if(f[i] >= ATOMLIM)
+            f[i] = (input>>formula[i])&0x1;
+    }
+
+    int ret = eval_tf(f);
+
+    free(f);
+    return ret;
 }
 
 /* does f1 => f2? */
@@ -101,7 +149,8 @@ int trivial(int *f1, int *f2)
         uint16_t control2 = ~(0x1<<i);
 
         while(input &&
-                (eval(f1, t1, input|control1) <= eval(f2, t2, input&control2)))
+                //(eval(f1, t1, input|control1) <= eval(f2, t2, input&control2)))
+                (eval2(f1, input|control1) <= eval2(f2, input&control2)))
             input--;
 
         if(!input) {

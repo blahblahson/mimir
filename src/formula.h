@@ -43,4 +43,6 @@ int *shove_nf(int *, struct range_t *, int *);
 
 int *sanitize(int *, struct range_t *);
 
+int **genbf(int nvar);
+
 #endif /* _FORMULA_H_ */

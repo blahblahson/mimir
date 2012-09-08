@@ -2,12 +2,33 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <errno.h>
+#include <mpi.h>
+#include <signal.h>
 #include "util.h"
 #include "set.h"
 #include "list.h"
 #include "formula.h"
 #include "rule.h"
 #include "logic.h"
+#include "modes.h"
+#include "parallel.h"
+
+// TODO: genbf belongs in formula.c
+
+/* signal business... when running in mode B any sister process could find a
+ * new inference, in which case it calls MPI_Abort which will send a signal
+ * SIGINT to all other siblings before exiting. here we catch this and set the
+ * global variable below which will be caught by the mode B main loop,
+ * signifying that we should blow this joint. a checkpoint will be set and then
+ * a clean exit done (return 0) */
+int letsblowthisjoint;
+
+// TODO: consider a more general handler for similar signals to SIGINT
+void SIGINT_handler(int signum)
+{
+    letsblowthisjoint = 1;
+}
 
 void printformula(int *formula)
 {
@@ -145,149 +166,6 @@ int **genbf2(int n)
     return exhaust(conj, NULL);
 }
 
-void genbf_i(int n, int m, int *maxima, int *choices, int *choice, int j)
-{
-    static int i;
-
-    if(j == n) {
-        //choices[i] = malloc(n*sizeof(int));
-        memcpy(&choices[i*n], choice, n*sizeof(int));
-        i++;
-        return;
-    }
-    else if(j < 0) { /* initial call */
-        /* initialize choice 2d array */
-        /*int m = n;
-        for(i = 0; i < n; i++) m *= maxima[i];*/
-
-        /* and counting variables... */
-        i = 0;
-        j = 0;
-    }
-    else if(i == m) return; // TODO: I think this is unnecessary
-
-
-    int k;
-    for(k = 0; k < maxima[j]; k++) {
-        choice[j] = k;
-        genbf_i(n, m, maxima, choices, choice, j+1);
-    }
-
-    return;
-}
-
-int **genbf_(int *atoms, int n, enum OPERATOR op, int *n_ret)
-{
-    /* base case, which is probably horribly inefficient... maybe I could cut
-     * down on so much dynamic allocation, but we'll see... */
-    if(n == 1) {
-        int **ret = malloc(2*sizeof(int *));
-        ret[0] = malloc(2*sizeof(int));
-        // TODO: again, better way to do this?
-        ret[0][0] = atoms[0]; ret[0][1] = OP_FIN;
-        ret[1] = NULL;
-        *n_ret = 1;
-
-        return ret;
-    }
-
-    int i, j, k;
-    int **ret = NULL;
-    *n_ret = 0;
-    enum OPERATOR op2 = op == OP_OR ? OP_AND : OP_OR;
-
-    int partsize, s[n], m[n]; s[0] = -1;
-    while((partsize = partition(n, s, m))) {
-        /* this causes an infinite loop, and the case of the operator acting
-         * directly on the passed atoms is covered instead by the case when
-         * partsize is n instead */
-        if(partsize == 1) continue;
-
-        int **subbfs[partsize];
-        int maxima[partsize], atoms2[n];
-        int n_choices = 1;
-        for(i = 0; i < partsize; i++) {
-            for(j = 0, k = 0; j < n; j++)
-                if(s[j] == i+1) atoms2[k++] = atoms[j];
-            subbfs[i] = genbf_(atoms2, k, op2, &maxima[i]);
-            //maxima[i] = length_l(subbfs[i]);
-            n_choices *= maxima[i];
-        }
-
-        /* a 2d array would be nice but C sucks at such things when passing
-         * between functions and I don't really want to malloc all that shit
-         * and then have to free it */
-        int choices[n_choices*partsize];
-        int choice[partsize];
-        genbf_i(partsize, n_choices, maxima, choices, choice, -1);
-        //for(i = 0; i < n_choices*partsize; i++) printf("%d ", choices[i]);
-        //printf("\n");
-
-
-        struct range_t t; t.top = 0;
-        for(i = 0; i < n_choices; i++) {
-            int *result = malloc(3*sizeof(int));
-            /* TODO: neater way to do this? */
-            result[0] = op; result[1] = OP_CLOSE; result[2] = OP_FIN;
-
-            /* we put them in reverse to preserve lexicographical order, since
-             * shove() is a quite primitive */
-            for(j = partsize-1; j >= 0; j--) {
-                //printf("n=%d, n_choices=%d i=%d j=%d subbfs[%d][choices[%d]]=subbfs[%d][%d]\n", n, n_choices, i, j, j, i*partsize+j, j, choices[i*partsize+j]);
-                result = shove_nf(result, &t, subbfs[j][choices[i*partsize+j]]);
-            }
-            //printf("--\n");
-
-            /* now shove it onto our list to return */
-            ret = realloc(ret, (++(*n_ret)+1)*sizeof(int *));
-            ret[(*n_ret)-1] = result;
-            ret[*n_ret] = NULL;
-        }
-        //printf("----\n");
-
-        /* free up the rest of the stuff... */
-        for(i = 0; i < partsize; i++) free_l((void **)subbfs[i]);
-    }
-
-    return ret;
-}
-
-int **genbf(int n)
-{
-    int i, j;
-    int atoms[n];
-    for(i = 0; i < n; i++) atoms[i] = i;
-
-    int n_ands, n_ors;
-    int **ands = genbf_(atoms, n, OP_AND, &n_ands);
-    int **ors = genbf_(atoms, n, OP_OR, &n_ors);
-
-    int **ret = malloc((n_ands+n_ors+1)*sizeof(int *));
-
-    /* this looks stupid but this way we alternate AND and OR thingies, which I
-     * think is probably more sensical... code to just shove in all the ANDs
-     * and then all the ORs is commented out after this stuff though */
-    for(i = 0, j = 0; i < min(n_ands, n_ors); i++) {
-        ret[j++] = ands[i];
-        ret[j++] = ors[i];
-    }
-
-    if(n_ands > n_ors)
-        for( ; i < n_ands; i++) ret[j++] = ands[i];
-    else if(n_ors > n_ands)
-        for( ; i < n_ors; i++) ret[j++] = ors[i];
-
-    /*
-    for(i = 0, k = 0; i < n_ands; i++) ret[j++] = ands[i];
-    for(i = 0; i < n_ors; i++) ret[j++] = ors[i];
-    */
-
-    free(ands);
-    free(ors);
-
-    return ret;
-}
-
 int lexorder(int *formula)
 {
     int i, c, n = length(formula);
@@ -303,90 +181,140 @@ int lexorder(int *formula)
 
 int main(int argc, char *argv[])
 {
-    /*int newinfA[] = {OP_AND, OP_OR, 0, OP_AND, 1, 2, OP_CLOSE, OP_CLOSE, OP_OR, OP_AND, 3, 4, OP_CLOSE, OP_AND, 5, 6, OP_CLOSE, OP_CLOSE, OP_OR, 7, OP_AND, 8, 9, OP_CLOSE, OP_CLOSE, OP_CLOSE, OP_FIN};
-    int newinfB[] = {OP_OR, OP_AND, OP_OR, 3, 7, OP_CLOSE, OP_OR, 0, OP_AND, 4, 8, OP_CLOSE, OP_CLOSE, OP_CLOSE, OP_AND, OP_OR, 2, 6, OP_CLOSE, OP_OR, 9, OP_AND, 1, 5, OP_CLOSE, OP_CLOSE, OP_CLOSE, OP_CLOSE, OP_FIN};
+    /* oh yeah baby this is the sexiest function name I've ever come up with */
+    parallelize(&argc, &argv);
 
-    if(implies(newinfA,newinfB)) exit(1);
-    if(trivial(newinfA,newinfB)) exit(1);
-    if(quickprove(newinfA, newinfB, -1)) printf("can prove\n");
-    else printf("new inference\n");
-    exit(0);*/
+    /* set SIGINT handler for clean exits */
+    signal(SIGINT, SIGINT_handler);
 
-    int **bfs = genbf(6);
-    int i, j;
-    int n_bfs = length_l((void **)bfs);
-    int totalinf = 0;
-    int totaltriv = 0;
-
-    //FILE *fh = fopen("./bfs.7", "w+");
-    for(i = 0; i < n_bfs; i++) {
-        //printformula(bfs[i]);
-        //printf("writing %d/%d\n", i+1, n_bfs);
-        //fwrite(bfs[i], sizeof(int), length(bfs[i])+1, fh);
+    /* I thing argc/argv checking is the most boring thing to program... */
+    if(argc < 2) {
+        pprintf("error: operation mode not specified\n"
+                "mimir usage:    mim a <number of variables>\n"
+                "                mim b <bf file> <start index> <stop index>\n"
+                "                mim c <bf file>\n"
+                "                mim v\n");
+        return 1;
     }
-    printf("%d\n", i);
 
-    //for(i = 0; i < n_bfs; i++) printformula(bfs[i]);
-    for(i = 0; i < n_bfs; i++) {
-        if(!lexorder(bfs[i])) continue;
+    int ret, walltime;
 
-        for(j = 0; j < n_bfs; j++) {
-            if(j == i) continue;
-
-            if(implies(bfs[i], bfs[j])) {
-                totalinf++;
-//                printformula(bfs[j]);
-                int triv = trivial(bfs[i], bfs[j]);
-
-
-                if(triv) {
-                    /*printformula(bfs[i]);
-                    printf("-------------\n");
-                    printformula(bfs[j]);*/
-                    totaltriv++;
-                    /*printformula(bfs[i]);
-                    printformula(bfs[j]);*/
-                    //printf("[PASS(trivial)](%d) %d -> %d\n", n_bfs, i+1, j+1);
-                    continue;
-                }
-                int f2vi = validinputs(bfs[j], NULL);
-                if(quickprove2(bfs[i],bfs[j],f2vi)) {
-                    printf("[PASS(exhaust)](%d) %d -> %d\n", n_bfs, i+1, j+1);
-                }
-                else {
-                    int triv = trivial(bfs[i], bfs[j]);
-                    if(!triv) {
-                        printf("[FAIL] %d -> %d\n", i, j);
-                        printf("NOT provable!\nA=");
-                        printformula(bfs[i]);
-                        printf("B=");
-                        printformula(bfs[j]);
-
-                        //quickprove(bfs[i], bfs[j], f2vi);
-                        //r_medial(bfs[i]);
-                        //printf("and trivial? %d\n", triv);
-                        exit(0);
-                    }
-                    /*else {
-                        printf("trivial:\n");
-                        printformula(bfs[i]);
-                        printformula(bfs[j]);
-                        printf("_________\n");
-                    }*/
-                }
-                //printf("%d %s %d\n", i, prove(bfs[i],bfs[j])?"proves":"does not prove", j);
+    /* select mode of operation */
+    switch(argv[1][0]) {
+        /* mode A */
+        case 'a':
+        case 'A':
+            if(argc < 3) {
+                pprintf("error: invalid number of arguments (mode A)\n"
+                        "mimir usage:    mim a <number of variables>\n");
+                break;
             }
-        }
-    }
-    printf("all inferences have proofs under {mix,switch,medial} and triviality\n"
-            "total inferences checked: %d\n"
-            "of which trivial: %d\n", totalinf, totaltriv);
-    //printf("for the record: we had %d bfs\n", n_bfs);
-    /*printf("%d\n", find(bfs, n_bfs, m1));
-    printformula(m1);
-    for(i = 0; i < n_bfs; i++) printformula(bfs[i]);*/
-    free_l((void **)bfs);
-    //fclose(fh);
 
+            int nvars = atoi(argv[2]);
+            if(nvars < 1) {
+                pprintf("error: number of variables must be strictly "
+                        "positive\n");
+                break;
+            }
+
+            ret = mode_a(nvars);
+            deparallelize();
+            return ret;
+
+        case 'b':
+        case 'B':
+            if(argc < 5) {
+                pprintf("error: invalid number of arguments (mode B)\n"
+                        "mimir usage:    mim b <bf file> <start index> "
+                        "<stop index> [wall time]\n");
+                return 1;
+            }
+
+            int start = atoi(argv[3]);
+            int stop = atoi(argv[4]);
+
+            if(start < 0 || stop < 0) {
+                printf("error: indices must be nonnegative\n");
+                return 1;
+            }
+            else if(start > stop) {
+                printf("error: start index greater than stop index\n");
+                return 1;
+            }
+
+            walltime = WALLTIME_DEFAULT;
+            if(argc == 6) {
+                if((walltime = atoi(argv[5])) < 1) {
+                    printf("error: wall time must be strictly positive\n");
+                    return 1;
+                }
+            }
+
+            ret = mode_b(argv[2], start, stop, walltime, 0, 0);
+            deparallelize();
+            return ret;
+
+        case 'c':
+        case 'C':
+            if(argc < 2) {
+                pprintf("error: invalid number of arguments (mode C)\n"
+                        "mimir usage:    mim c <bf file> [wall time]\n");
+                return 1;
+            }
+
+            walltime = WALLTIME_DEFAULT;
+            if(argc == 4) {
+                if((walltime = atoi(argv[3])) < 1) {
+                    printf("error: wall time must be strictly positive\n");
+                    return 1;
+                }
+            }
+
+            ret = mode_c(argv[2], walltime);
+            deparallelize();
+            return ret;
+
+        case 'v':
+        case 'V':
+            /* mode V */
+            ret = mode_v();
+            deparallelize();
+            return ret;
+
+        case 'x':
+        case 'X':
+            /* mode X - DEBUG MODE */
+            int a[] = {OP_OR, OP_AND, 0, 1, OP_CLOSE, 2, OP_CLOSE, OP_FIN};
+            int b[] = {OP_OR, OP_AND, 0, 1, OP_CLOSE, 2, OP_CLOSE, OP_FIN};
+
+        default:
+            pprintf("error: unrecognized operation mode %c\n", argv[1][0]);
+    }
+
+    deparallelize();
+    return 1;
+
+
+    /****************************************************/
+        /* oh shit I didn't think this through, I need to store all the LHS or
+         * RHS (at least) in memory to partition this task neatly */
+        /* solution: store all lexicographically ordered ones in memory too */
+
+        /* ...
+         *
+         *
+         * anyway at this point all of them should be checked, and we should
+         * also regularly do checkpointing */
+
+        /* TODO: + read lexo bfs
+         *       + check inferences and do checkpointing
+         *       + exit strategy for when the program finished (new inference or not)
+         *      !- sandbox mode X
+         *       + handle SIGINT or whatever for when another program finishes
+         *      !- fix the bug which breaks at 200 or whatever
+         *      !- fix eval
+         *       - fix the memory access problem?
+         *       ~ clean up the code
+         */
     return 0;
 }
