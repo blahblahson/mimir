@@ -30,6 +30,7 @@ int scope(int *, int);
 int parent(int *, int);
 int parent_deep(int *, int);
 int atomcount(int *, struct range_t *);
+int lexorder(int *);
 struct range_t *range(int *, int);
 struct range_t **arguments(int *, struct range_t *);
 struct range_t **arguments_op(int *, struct range_t *, enum OPERATOR);
@@ -44,5 +45,7 @@ int *shove_nf(int *, struct range_t *, int *);
 int *sanitize(int *, struct range_t *);
 
 int **genbf(int nvar);
+
+void printformula(int *);
 
 #endif /* _FORMULA_H_ */

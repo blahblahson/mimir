@@ -14,7 +14,24 @@
 #include "modes.h"
 #include "parallel.h"
 
-// TODO: genbf belongs in formula.c
+/*
+(2658,1624)
+(2658,1720)
+(2658,1784)
+(2658,1800)
+(2659,595)
+(2659,647)
+*** glibc detected *** /home/alvin/projects/mimir/mim: realloc(): invalid next size: 0x08930600 ***
+^C
+Program received signal SIGINT, Interrupt.
+0xb7fdd424 in __kernel_vsyscall ()
+(gdb) bt
+#0  0xb7fdd424 in __kernel_vsyscall ()
+#1  0xb7d81741 in ?? () from /lib/i386-linux-gnu/libc.so.6
+#2  0xb7d0295e in ?? () from /lib/i386-linux-gnu/libc.so.6
+Backtrace stopped: previous frame identical to this frame (corrupt stack?)
+*/ 
+
 
 /* signal business... when running in mode B any sister process could find a
  * new inference, in which case it calls MPI_Abort which will send a signal
@@ -28,31 +45,6 @@ int letsblowthisjoint;
 void SIGINT_handler(int signum)
 {
     letsblowthisjoint = 1;
-}
-
-void printformula(int *formula)
-{
-    int j;
-    int n = length(formula);
-    for(j = 0; j <= n; j++) {
-        switch(formula[j]) {
-            case OP_AND:
-                printf("AND(");
-                break;
-            case OP_OR:
-                printf("OR(");
-                break;
-            case OP_CLOSE:
-                printf(")");
-                break;
-            case OP_FIN:
-                printf(".");
-                break;
-            default:
-                printf("%d,", formula[j]);
-        }
-    }
-    printf("\n");
 }
 
 /* generate ALL balanced formulae of n variables */
@@ -166,18 +158,6 @@ int **genbf2(int n)
     return exhaust(conj, NULL);
 }
 
-int lexorder(int *formula)
-{
-    int i, c, n = length(formula);
-    for(i = n-1, c = -1; i >= 0; i--) {
-        if(formula[i] >= ATOMLIM) {
-            if(formula[i] != c+1) return 0;
-            else c++;
-        }
-    }
-
-    return 1;
-}
 
 int main(int argc, char *argv[])
 {
@@ -283,9 +263,11 @@ int main(int argc, char *argv[])
 
         case 'x':
         case 'X':
+            pprintf("mimir operation mode X\n");
             /* mode X - DEBUG MODE */
             int a[] = {OP_OR, OP_AND, 0, 1, OP_CLOSE, 2, OP_CLOSE, OP_FIN};
             int b[] = {OP_OR, OP_AND, 0, 1, OP_CLOSE, 2, OP_CLOSE, OP_FIN};
+            pprintf("%d\n",max(a[0],b[0])); // bs to shut up -Wall
 
         default:
             pprintf("error: unrecognized operation mode %c\n", argv[1][0]);

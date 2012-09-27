@@ -10,7 +10,7 @@
 extern int mpi_size, mpi_rank;
 
 void parallelize(int *, char ***);
-void deparalellize(void);
+void deparallelize(void);
 void pexit(int);
 
 int outoftime(int);

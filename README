@@ -2,3 +2,10 @@ Mímir
     The rememberer, the wise one
 -
 mim crunches basic linear inference rules to find new ones.
+
+
+
+DOCUMENTATION
+-------------
+None is available right now. For usage please refer to the source (main.c in
+particular) and command line instructions.

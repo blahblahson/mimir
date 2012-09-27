@@ -2,8 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include "parallel.h"
 #include "formula.h"
+#include "fcomp.h"
+#include "logic.h"
+#include "list.h"
+#include "parallel.h"
 #include "version.h"
 
 #define READ_BLOCKSIZE 1024*1024
@@ -213,16 +216,22 @@ int mode_b(char *bffile, int start, int stop, int walltime, int ii, int jj)
             }
 
             /* else, FINALLY, we get to the actual logic */
-            if(implies(bfs_lo[j], bfs[i])) { /* sound inference, check! */
+            if(sound(bfs_lo[j], bfs[i])) { /* sound inference, check! */
                 n_checked++;
 
                 if(trivial(bfs_lo[j], bfs[i])) { /* trivial, so move on */
                     n_trivial++;
                     continue;
                 }
-                
+
+                if(equiv(bfs_lo[j], NULL, bfs[i], NULL)) {
+                    continue;
+                }
+
+                printf("(%d,%d)\n", i, j);
+
                 int f2vi = validinputs(bfs[i], NULL);
-                if(quickprove2(bfs_lo[j], bfs[i], f2vi)) {
+                if(prove(bfs_lo[j], bfs[i], f2vi)) {
                     /* provable, boring... NEXT! */
                     continue;
                 }
@@ -246,14 +255,14 @@ int mode_b(char *bffile, int start, int stop, int walltime, int ii, int jj)
                      * the other parallel processes to exit as well because
                      * we have the information we want. we use MPI for
                      * this... */
-                    pexit(0);
+                    pexit(ret);
                     /* this'll send a SIGINT to all other instances in this
                      * computation and they will catch it and subsequently
                      * checkpoint as soon as possible */
 
                     pprintf("exiting\n");
 
-                    return 0;
+                    return ret;
                 }
             }
         }
@@ -271,6 +280,8 @@ int mode_b(char *bffile, int start, int stop, int walltime, int ii, int jj)
 
 int mode_c(char *bffile, int walltime)
 {
+    pprintf("mimir operation mode C\n");
+
     char checkpointfile[100];
     snprintf(checkpointfile, 100, "mim.%d-%d.checkpoint", mpi_size,
             mpi_rank);
@@ -282,8 +293,8 @@ int mode_c(char *bffile, int walltime)
         return 1;
     }
 
-    int checkpoint[5];
-    if(fread(checkpoint, sizeof(int), 5, fh) != 5) {
+    int cp[5];
+    if(fread(cp, sizeof(int), 5, fh) != 5) {
         pprintf("error: failed to read file (%s)\n", strerror(errno));
         if(fclose(fh))
             pprintf("error: failed to close file (%s)\n", strerror(errno));
@@ -295,14 +306,14 @@ int mode_c(char *bffile, int walltime)
         return 1;
     }
 
-    if(checkpoint[0] == 1) {
+    if(cp[0] == 1) {
         pprintf("notice: checkpoint refers to a finished task\n");
         return 0;
     }
 
-    pprintf("checkpoint loaded, dropping to mode B\n");
-    return mode_b(bffile, checkpoint[3], checkpoint[4], walltime,
-            checkpoint[1], checkpoint[2]);
+    pprintf("checkpoint loaded ({%d,%d,%d,%d,%d}), dropping to mode B\n",
+            cp[0], cp[1], cp[2], cp[3], cp[4]);
+    return mode_b(bffile, cp[3], cp[4], walltime, cp[1], cp[2]);
 }
 
 int mode_v(void)

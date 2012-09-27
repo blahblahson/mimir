@@ -53,6 +53,8 @@ int eval_tf(int *formula)
                 if(--skip < 0) break;
                 else continue;
             }
+
+            if(skip) continue;
             if(formula[i] == OP_FIN) break;
 
             if(formula[0] == OP_AND && !eval_tf(formula+i)) return 0;
@@ -78,7 +80,7 @@ int eval2(int *formula, uint16_t input)
     int i;
     for(i = 0; i < n_f; i++) {
         /* initialize the evaluation string */
-        if(f[i] >= ATOMLIM)
+        if(formula[i] >= ATOMLIM)
             f[i] = (input>>formula[i])&0x1;
     }
 
@@ -89,7 +91,7 @@ int eval2(int *formula, uint16_t input)
 }
 
 /* does f1 => f2? */
-int implies(int *f1, int *f2)
+int sound(int *f1, int *f2)
 {
     struct range_t *t1 = range(f1, 0);
     struct range_t *t2 = range(f2, 0);
@@ -149,8 +151,8 @@ int trivial(int *f1, int *f2)
         uint16_t control2 = ~(0x1<<i);
 
         while(input &&
-                //(eval(f1, t1, input|control1) <= eval(f2, t2, input&control2)))
-                (eval2(f1, input|control1) <= eval2(f2, input&control2)))
+                (eval(f1, t1, input|control1) <= eval(f2, t2, input&control2)))
+                //(eval2(f1, input|control1) <= eval2(f2, input&control2)))
             input--;
 
         if(!input) {
@@ -224,46 +226,19 @@ int validinputs(int *formula, struct range_t *t)
     }
 }
 
-int quickprove2(int *f1, int *f2, int f2vi)
+/* this used to be affectionately named "quickprove", but it makes sense to
+ * call it prove and call the original slower one slowprove */
+int prove(int *f1, int *f2, int f2vi)
 {
-    /* nonsense */
-    if(f1 == NULL || f2 == NULL)
-        return 0;
-
-    //if(equiv(f1, NULL, f2, NULL)) return 1;
-
+    if(f1 == NULL || f2 == NULL) return 0;
     if(validinputs(f1, NULL)+2 > f2vi) return 0;
-
-    //printformula(f1);
-
-    int i;
-
-    /* can we prove it with one step of mix, switch or medial? */
-    /*int **next_mix = r_mix(f1);
-    int n_next_mix = length_l((void **)next_mix);
-    for(i = 0; i < n_next_mix; i++) {
-        if(implies(next_mix[i], f2)) {
-            free_l((void **)next_mix);
-            return 1;
-        }
-    }*/
-    /*if(find(next_mix, n_next_mix, f2) >= 0) {
-        free_l((void **)next_mix);
-        return 1;
-    }*/
-
-    if(r_switch2(f1, f2)) return 1;
-    if(r_medial2(f1, f2)) return 1;
-    /*if(find(next_switch, n_next_switch, f2) >= 0) {
-        free_l((void **)next_mix);
-        free_l((void **)next_switch);
-        return 1;
-    }*/
+    if(rc_switch(f1, f2)) return 1;
+    if(rc_medial(f1, f2)) return 1;
 
     return 0;
 }
 
-int quickprove(int *f1, int *f2, int f2vi)
+int slowprove(int *f1, int *f2, int f2vi)
 {
     /* nonsense */
     if(f1 == NULL || f2 == NULL)
@@ -310,7 +285,7 @@ int quickprove(int *f1, int *f2, int f2vi)
     /* mix */
     for(i = 0; i < n_next_mix; i++) {
 //        printf("prove from mix\n");
-        if(quickprove(next_mix[i], f2, f2vi)) {
+        if(slowprove(next_mix[i], f2, f2vi)) {
             free_l((void **)next_mix);
             free_l((void **)next_switch);
             free_l((void **)next_medial);
@@ -322,7 +297,7 @@ int quickprove(int *f1, int *f2, int f2vi)
     for(i = 0; i < n_next_switch; i++) {
 //        printf("prove from switch\n");
 //        printformula(next_switch[i]);
-        if(quickprove(next_switch[i], f2, f2vi)) {
+        if(slowprove(next_switch[i], f2, f2vi)) {
             free_l((void **)next_mix);
             free_l((void **)next_switch);
             free_l((void **)next_medial);
@@ -333,7 +308,7 @@ int quickprove(int *f1, int *f2, int f2vi)
     /* medial */
     for(i = 0; i < n_next_medial; i++) {
 //        printf("prove from medial\n");
-        if(quickprove(next_medial[i], f2, f2vi)) {
+        if(slowprove(next_medial[i], f2, f2vi)) {
             free_l((void **)next_mix);
             free_l((void **)next_switch);
             /* ok, I think this function could do with some gotos... */

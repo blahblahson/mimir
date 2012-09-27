@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
@@ -90,6 +91,19 @@ int atomcount(int *formula, struct range_t *t)
 
     if(t->top == t->bot && formula[t->top] >= ATOMLIM) return 1;
     return count;
+}
+
+int lexorder(int *formula)
+{
+    int i, c, n = length(formula);
+    for(i = n-1, c = -1; i >= 0; i--) {
+        if(formula[i] >= ATOMLIM) {
+            if(formula[i] != c+1) return 0;
+            else c++;
+        }
+    }
+
+    return 1;
 }
 
 struct range_t *range(int *formula, int s)
@@ -606,4 +620,32 @@ int **genbf(int n)
     free(ors);
 
     return ret;
+}
+
+/* the output from this function is a bit broken but you can see exactly what
+ * it means */
+void printformula(int *formula)
+{
+    int j;
+    int n = length(formula);
+    for(j = 0; j <= n; j++) {
+        switch(formula[j]) {
+            case OP_AND:
+                printf("AND(");
+                break;
+            case OP_OR:
+                printf("OR(");
+                break;
+            case OP_CLOSE:
+                printf(")");
+                break;
+            case OP_FIN:
+                printf(".");
+                break;
+            default:
+                printf("%d,", formula[j]);
+        }
+    }
+
+    printf("\n");
 }
